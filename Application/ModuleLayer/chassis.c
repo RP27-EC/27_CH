@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* 声明全局底盘对象 (定义在 control_task.c 中) */
+/* 声明全局底盘对象 (定义�?control_task.c �? */
 extern Chassis_t hero_chassis;
 
 static float Float_Clamp(float val, float min, float max) {
@@ -43,10 +43,10 @@ void Chassis_Init(Chassis_t *chassis) {
 }
 
 /**
- * @brief 麦轮逆解算 + 4轮速度 PID + 发送 CAN 报文 (无死区纯线性映射)
+ * @brief 麦轮逆解�?+ 4轮速度 PID + 发�?CAN 报文 (无死区纯线性映�?
  */
 void Chassis_Control_Loop(Chassis_t *chassis, int16_t ch_vx, int16_t ch_vy, int16_t ch_wz, bool failsafe, CAN_HandleTypeDef *hcan) {
-    /* 1. 安全关控检查 */
+    /* 1. 安全关控检�?*/
     if (failsafe) {
         chassis->enabled = false;
         for (int i = 0; i < 4; i++) {
@@ -57,19 +57,19 @@ void Chassis_Control_Loop(Chassis_t *chassis, int16_t ch_vx, int16_t ch_vy, int1
     } else {
         chassis->enabled = true;
 
-        /* 2. 直接归一化为 [-1.0, +1.0] 的浮点速度比例 (无死区处理) */
+        /* 2. 直接归一化为 [-1.0, +1.0] 的浮点速度比例 (无死区处�? */
         chassis->vx = (float)ch_vx / CHASSIS_RC_MAX_VALUE;
         chassis->vy = (float)ch_vy / CHASSIS_RC_MAX_VALUE;
         chassis->wz = (float)ch_wz / CHASSIS_RC_MAX_VALUE;
 
-        /* 3. 麦轮逆解算 (标准 O 型，ROS/RM 权威右手坐标系) */
+        /* 3. 麦轮逆解�?(标准 O 型，ROS/RM 权威右手坐标�? */
         float raw_rpm[4];
         raw_rpm[0] = (+chassis->vx - chassis->vy - chassis->wz) * CHASSIS_MAX_WHEEL_RPM; // 0: FL
         raw_rpm[1] = (+chassis->vx + chassis->vy + chassis->wz) * CHASSIS_MAX_WHEEL_RPM; // 1: FR
         raw_rpm[2] = (+chassis->vx + chassis->vy - chassis->wz) * CHASSIS_MAX_WHEEL_RPM; // 2: BL
         raw_rpm[3] = (+chassis->vx - chassis->vy + chassis->wz) * CHASSIS_MAX_WHEEL_RPM; // 3: BR
 
-        /* 4. 等比例归一化限幅 (防超速偏航) */
+        /* 4. 等比例归一化限�?(防超速偏�? */
         float max_rpm = 0.0f;
         for (int i = 0; i < 4; i++) {
             float abs_rpm = fabsf(raw_rpm[i]);
@@ -80,7 +80,7 @@ void Chassis_Control_Loop(Chassis_t *chassis, int16_t ch_vx, int16_t ch_vy, int1
             for (int i = 0; i < 4; i++) raw_rpm[i] *= rate;
         }
 
-        /* 5. 4轮独立速度 PID 闭环 (右侧电机 1号 FR, 3号 BR 硬件镜像取反) */
+        /* 5. 4轮独立速度 PID 闭环 (右侧电机 1�?FR, 3�?BR 硬件镜像取反) */
         for (int i = 0; i < 4; i++) {
             chassis->wheel[i].target_rpm = raw_rpm[i];
             float target = (i == 1 || i == 3) ? -chassis->wheel[i].target_rpm : chassis->wheel[i].target_rpm;
@@ -89,7 +89,7 @@ void Chassis_Control_Loop(Chassis_t *chassis, int16_t ch_vx, int16_t ch_vy, int1
         }
     }
 
-    /* 6. 组装 0x200 标准 CAN 帧并发送 */
+    /* 6. 组装 0x200 标准 CAN 帧并发�?*/
     CAN_TxHeaderTypeDef header;
     uint8_t data[8];
     uint32_t mailbox;
@@ -113,7 +113,7 @@ void Chassis_Control_Loop(Chassis_t *chassis, int16_t ch_vx, int16_t ch_vy, int1
 }
 
 /**
- * @brief 在 CAN 接收中断中调用：解析 0x201 ~ 0x204 电调反馈
+ * @brief �?CAN 接收中断中调用：解析 0x201 ~ 0x204 电调反馈
  */
 void Chassis_Parse_Feedback(Chassis_t *chassis, uint32_t std_id, const uint8_t data[8]) {
     if (std_id >= 0x201 && std_id <= 0x204) {
@@ -122,11 +122,4 @@ void Chassis_Parse_Feedback(Chassis_t *chassis, uint32_t std_id, const uint8_t d
         chassis->wheel[i].feedback_rpm = (int16_t)((data[2] << 8) | data[3]);
         chassis->wheel[i].feedback_current = (int16_t)((data[4] << 8) | data[5]);
     }
-}
-
-/**
- * @brief 覆盖 drv_can.c 中的 __WEAK 弱函数，自动无缝接管 CAN1 接收数据流！
- */
-void CAN1_rxDataHandler(uint32_t rxId, uint8_t *rxBuf) {
-    Chassis_Parse_Feedback(&hero_chassis, rxId, rxBuf);
 }
