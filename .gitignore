@@ -1,0 +1,44 @@
+# 编译生成的中间文件
+*.o
+*.d
+*.crf
+*.tra
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.__i
+
+# Keil 工程临时文件
+*.uvgui.*
+*.uvopt
+*.uvproj.bak
+*.dep
+*.plg
+*.log
+*.bak
+*.htm
+*.iex
+
+# 调试器相关文件
+JLinkLog.txt
+JLinkSettings.ini
+*.ini
+*.cdb
+
+# 目录忽略（编译生成的中间文件夹）
+Objects/
+Listings/
+RTE/
+_build/
+Debug/
+Release/
+
+# 编辑器/IDE 临时文件
+*.swp
+*~
+.vscode/
+.idea/
+*.uvguix.*
