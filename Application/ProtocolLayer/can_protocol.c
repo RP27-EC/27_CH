@@ -29,8 +29,8 @@ void CAN1_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 
 		case 0x201:
 		case 0x202:
- t	case 0x203:
- t	case 0x204:
+		case 0x203:
+		case 0x204:
 		{
 			Chassis_Parse_Feedback(&hero_chassis, rxId, rxBuf);
 			break;
