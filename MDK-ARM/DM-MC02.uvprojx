@@ -1287,6 +1287,21 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>Module</GroupName>
+          <Files>
+            <File>
+              <FileName>chassis.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ModuleLayer\chassis.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_kinematics.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ModuleLayer\chassis_kinematics.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>Imu</GroupName>
           <Files>
             <File>

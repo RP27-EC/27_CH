@@ -12,6 +12,8 @@ $motorHeader = Get-Content -LiteralPath 'Application/DeviceLayer/chassis_motor.h
 $deviceSource = Get-Content -LiteralPath 'Application/DeviceLayer/device.c' -Raw
 $protocolSource = Get-Content -LiteralPath 'Application/ProtocolLayer/can_protocol.c' -Raw
 $rmHeader = Get-Content -LiteralPath 'Application/HardwareLayer/RM_motor.h' -Raw
+$controlTask = Get-Content -LiteralPath 'Application/TaskLayer/control_task.c' -Raw
+$keilProject = Get-Content -LiteralPath 'MDK-ARM/DM-MC02.uvprojx' -Raw
 
 Assert-Match $motorSource 'Motor_RM_t\s+Chassis_Motor\s*\[\s*4\s*\]' 'missing four-motor chassis array'
 Assert-Match $motorSource 'Motor_RM_Group_t\s+Chassis_Motor_Group' 'missing chassis motor group'
@@ -31,5 +33,12 @@ foreach ($id in 201..204) {
     Assert-Match $protocolSource "case\s+0x$id\s*:" "CAN1 does not dispatch 0x$id"
 }
 Assert-Match $rmHeader 'CAN_HandleTypeDef\s+\*hcan' 'RM motor group handle is missing'
+Assert-Match $controlTask 'Chassis_Init\s*\(\s*\)' 'control task does not initialize the chassis'
+Assert-Match $controlTask 'Chassis_Update\s*\(\s*rc_sensor\.info->ch3\s*,\s*rc_sensor\.info->ch2\s*,\s*rc_sensor\.info->ch0\s*,' 'control task channel mapping is incorrect'
+Assert-Match $controlTask 'rc_sensor\.work_state\s*!=\s*DEV_ONLINE' 'control task does not fail safe on remote offline'
+Assert-Match $controlTask 'rc_sensor\.errno\s*!=\s*NONE_ERR' 'control task does not fail safe on invalid remote data'
+Assert-Match $controlTask 'osDelay\s*\(\s*2\s*\)' 'control task period is not 2 ms'
+Assert-Match $keilProject '<FilePath>\.\.\\Application\\ModuleLayer\\chassis\.c</FilePath>' 'chassis.c is missing from Keil project'
+Assert-Match $keilProject '<FilePath>\.\.\\Application\\ModuleLayer\\chassis_kinematics\.c</FilePath>' 'chassis_kinematics.c is missing from Keil project'
 
 Write-Output 'chassis wiring contract passed'
