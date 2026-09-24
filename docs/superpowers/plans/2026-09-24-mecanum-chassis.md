@@ -49,7 +49,7 @@
 
 - [ ] **Step 1: Add a static source-contract test** in `test/chassis/test_chassis_wiring.ps1` that fails unless all four `rxId` values `0..3`, `_3508_Reduction`, `&hfdcan1`, group ID `0x200`, and CAN1 cases `0x201..0x204` are present.
 - [ ] **Step 2: Verify RED** with `powershell -ExecutionPolicy Bypass -File test/chassis/test_chassis_wiring.ps1`; expected failure reports the missing four-motor group.
-- [ ] **Step 3: Replace the eight-motor swerve configuration** with four complete `Motor_RM_t` objects. Give each motor its own `pid_ctrl_t` using initial parameters `kp=6.0f`, `ki=0.0f`, `kd=0.0f`, `a=1.0f`, `integral_max=6000.0f`, `out_max=10000.0f`; expose wheel-direction constants in `chassis_motor.h` for later bench correction.
+- [ ] **Step 3: Replace the eight-motor swerve configuration** with four complete `_3508_Single` `Motor_RM_t` objects so the PID output retains raw-current semantics. Give each motor its own `pid_ctrl_t` using initial parameters `kp=6.0f`, `ki=0.0f`, `kd=0.0f`, `a=1.0f`, `integral_max=6000.0f`, `out_max=10000.0f`; expose wheel-direction constants in `chassis_motor.h` for later bench correction.
 - [ ] **Step 4: Update initialization and dispatch** so `DEVICE_Init()` initializes only `Chassis_Motor_Group` for the chassis and `CAN1_rxDataHandler()` routes IDs `0x201..0x204` to indices `0..3` without changing the existing yaw case.
 - [ ] **Step 5: Verify GREEN** by rerunning the PowerShell contract test; expected output is `chassis wiring contract passed`.
 - [ ] **Step 6: Commit** with `git commit -m "feat: 配置四路3508底盘电机"`.
