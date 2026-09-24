@@ -1,4 +1,4 @@
-/**
+ï»¿/**
  * @file        rc_protocol.c
  * @author      RobotPilots
  * @Version     v1.1
@@ -6,7 +6,7 @@
  * @update
  *              v1.0(9-September-2020)
  *              v1.1(24-October-2021)
- *                  1.ÐÞ¸Ärc_potocol.c/.h->rc_protocol.c/.h 
+ *                  1.ä¿®æ”¹rc_potocol.c/.h->rc_protocol.c/.h 
  */
  
 /* Includes ------------------------------------------------------------------*/
@@ -30,7 +30,7 @@ uint32_t tt1, tt2, ttp1;
 /* Exported functions --------------------------------------------------------*/
 void rc_sensor_init(rc_sensor_t *rc_sen)
 {
-	// ³õÊ¼»¯ÎªÀëÏß×´Ì¬
+	// åˆå§‹åŒ–ä¸ºç¦»çº¿çŠ¶æ€
 	rc_sen->info->offline_cnt = rc_sen->info->offline_max_cnt + 1;
 	rc_sen->work_state = DEV_OFFLINE;
 	
@@ -44,7 +44,7 @@ void rc_sensor_init(rc_sensor_t *rc_sen)
 }
 
 /**
-  * @brief  °´¼ü³¤°´Ê±¼äÉèÖÃ
+  * @brief  æŒ‰é”®é•¿æŒ‰æ—¶é—´è®¾ç½®
   */
 void keyboard_cnt_max_set(rc_sensor_t *rc_sen)
 {
@@ -71,11 +71,11 @@ void keyboard_cnt_max_set(rc_sensor_t *rc_sen)
 }
 
 /**
-  * @brief  Êó±êÊý¾Ý¸üÐÂ
+  * @brief  é¼ æ ‡æ•°æ®æ›´æ–°
   */
 void rc_interrupt_update(rc_sensor_t *rc_sen)
 {
-	/* Êó±êËÙ¶È¾ùÖµÂË²¨ */
+	/* é¼ æ ‡é€Ÿåº¦å‡å€¼æ»¤æ³¢ */
 	static int16_t mouse_x[REMOTE_SMOOTH_TIMES], mouse_y[REMOTE_SMOOTH_TIMES];
 	static int16_t index = 0;
 	if(index == REMOTE_SMOOTH_TIMES)
@@ -93,12 +93,12 @@ void rc_interrupt_update(rc_sensor_t *rc_sen)
 	
 }
 /**
- *	@brief	Ò£¿ØÆ÷Êý¾Ý½âÎöÐ­Òé
+ *	@brief	é¥æŽ§å™¨æ•°æ®è§£æžåè®®
  */
 void rc_sensor_update(rc_sensor_t *rc_sen, uint8_t *rxBuf)
 {
 	rc_sensor_info_t *rc_info = rc_sen->info;
-	/* Ò£¿ØÆ÷ */
+	/* é¥æŽ§å™¨ */
 	rc_info->ch0 = (rxBuf[0] | rxBuf[1] << 8) & 0x07FF;
 	rc_info->ch0 -= 1024;
 	rc_info->ch1 = (rxBuf[1] >> 3 | rxBuf[2] << 5) & 0x07FF;
@@ -118,7 +118,7 @@ void rc_sensor_update(rc_sensor_t *rc_sen, uint8_t *rxBuf)
 	rc_info->s1 = ((rxBuf[5] >> 4) & 0x000C) >> 2;
 	rc_info->s2 = (rxBuf[5] >> 4) & 0x0003;	
 	
-	/* ¼üÊó */
+	/* é”®é¼  */
 	rc_info->mouse_vx = rxBuf[6]  | (rxBuf[7 ] << 8);
 	rc_info->mouse_vy = rxBuf[8]  | (rxBuf[9 ] << 8);
 	rc_info->mouse_vz = rxBuf[10] | (rxBuf[11] << 8);
@@ -150,7 +150,7 @@ void rc_sensor_update(rc_sensor_t *rc_sen, uint8_t *rxBuf)
 }
 
 /**
- *	@brief	¸üÐÂ¼üÅÌ×´Ì¬
+ *	@brief	æ›´æ–°é”®ç›˜çŠ¶æ€
  */
 void keyboard_update(rc_sensor_info_t	*info)
 {
@@ -175,7 +175,7 @@ void keyboard_update(rc_sensor_info_t	*info)
 }
 
 /**
- *	@brief	¸üÐÂ¼üÅÌ°´¼ü×´Ì¬
+ *	@brief	æ›´æ–°é”®ç›˜æŒ‰é”®çŠ¶æ€
  *  release -> release_to_press -> short_press -> long_press -> press_to_release
  */
 void keyboard_status_update(key_board_info_t *key)
@@ -218,17 +218,13 @@ void keyboard_status_update(key_board_info_t *key)
         } 
     }
 }
-static uint8_t init_cnt = 0;
 /**
- *	@brief	ÔÚ´®¿Ú2ÖÐ½âÎöÒ£¿ØÊý¾ÝÐ­Òé
+ *	@brief	åœ¨ä¸²å£2ä¸­è§£æžé¥æŽ§æ•°æ®åè®®
  */
 void USART5_rxDataHandler(uint8_t *rxBuf)
 {
-	// ¸üÐÂÒ£¿ØÊý¾Ý
-	if(init_cnt != 0)
+	/* Every complete DBUS frame is a heartbeat, including the first one. */
 	rc_sensor.info->offline_cnt = 0;
-	else
-	init_cnt ++;
 	rc_sensor.update(&rc_sensor, rxBuf);
 	rc_sensor.check(&rc_sensor);
 	

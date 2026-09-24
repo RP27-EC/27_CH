@@ -1,4 +1,4 @@
-/**
+﻿/**
  ******************************************************************************
  * @file        drv_uart.c
  * @author      RobotPilots@2020
@@ -78,14 +78,17 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef * huart, uint16_t Size)
 	if(huart->Instance == UART5)
 	{
 #if UART5_RC_USE_HAL_TOIDLE_DMA
-		if(HAL_UARTEx_GetRxEventType(huart) == HAL_UART_RXEVENT_IDLE)
+		/*
+		 * DBUS frame length and DMA buffer length are both 18 bytes.  A full
+		 * frame may therefore arrive as HAL_UART_RXEVENT_TC instead of IDLE.
+		 * Parse every complete frame and always restart reception, regardless
+		 * of whether the event was IDLE, TC, or an unexpected short frame.
+		 */
+		if(Size == USART5_RX_DATA_FRAME_LEN)
 		{
-			if(Size == USART5_RX_DATA_FRAME_LEN)
-			{
-				USART5_rxDataHandler(usart5_dma_rxbuf);
-			}
-			uart5_rc_start_receive();
+			USART5_rxDataHandler(usart5_dma_rxbuf);
 		}
+		uart5_rc_start_receive();
 #else
 		if(((((DMA_Stream_TypeDef  *)huart->hdmarx->Instance)->CR) & DMA_SxCR_CT ) == RESET) 
 		{ 
