@@ -39,6 +39,9 @@ int main(void)
     expect_wheels("lateral", 0.0f, 1.0f, 0.0f, 6000.0f, lateral);
     expect_wheels("rotate", 0.0f, 0.0f, 1.0f, 6000.0f, rotate);
     expect_wheels("saturated", 1.0f, 1.0f, 1.0f, 6000.0f, saturated);
+    expect_wheels("non-positive max", 1.0f, 0.0f, 0.0f, 0.0f, zero);
+    Chassis_Mecanum_Calculate(1.0f, 0.0f, 0.0f, 6000.0f, NULL);
+    tests_run++;
 
     printf("%u tests passed\n", tests_run);
     return EXIT_SUCCESS;

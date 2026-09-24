@@ -4,8 +4,10 @@
 #include "gimbal_motor.h"
 #include "rc_sensor.h"
 
-void StartCtrlTask(void const *argument)
+void StartCtrlTask(void *argument)
 {
+    uint32_t next_wake = osKernelGetTickCount();
+
     (void)argument;
     Chassis_Init();
 
@@ -23,6 +25,7 @@ void StartCtrlTask(void const *argument)
                        rc_sensor.info->ch0,
                        chassis_failsafe);
 
-        osDelay(2);
+        next_wake += 2U;
+        osDelayUntil(next_wake);
     }
 }

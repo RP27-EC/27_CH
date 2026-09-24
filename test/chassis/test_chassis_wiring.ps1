@@ -37,7 +37,10 @@ Assert-Match $controlTask 'Chassis_Init\s*\(\s*\)' 'control task does not initia
 Assert-Match $controlTask 'Chassis_Update\s*\(\s*rc_sensor\.info->ch3\s*,\s*rc_sensor\.info->ch2\s*,\s*rc_sensor\.info->ch0\s*,' 'control task channel mapping is incorrect'
 Assert-Match $controlTask 'rc_sensor\.work_state\s*!=\s*DEV_ONLINE' 'control task does not fail safe on remote offline'
 Assert-Match $controlTask 'rc_sensor\.errno\s*!=\s*NONE_ERR' 'control task does not fail safe on invalid remote data'
-Assert-Match $controlTask 'osDelay\s*\(\s*2\s*\)' 'control task period is not 2 ms'
+Assert-Match $controlTask 'void\s+StartCtrlTask\s*\(\s*void\s*\*\s*argument\s*\)' 'control task signature is not CMSIS-RTOS2 compatible'
+Assert-Match $controlTask 'next_wake\s*\+=\s*2U' 'control task does not advance a 2 ms absolute deadline'
+Assert-Match $controlTask 'osDelayUntil\s*\(\s*next_wake\s*\)' 'control task does not use absolute periodic delay'
+Assert-Match (Get-Content -LiteralPath 'Core/Inc/FreeRTOSConfig.h' -Raw) 'configTICK_RATE_HZ\s+\(\(TickType_t\)1000\)' 'FreeRTOS tick rate does not support a 2 ms period'
 Assert-Match $keilProject '<FilePath>\.\.\\Application\\ModuleLayer\\chassis\.c</FilePath>' 'chassis.c is missing from Keil project'
 Assert-Match $keilProject '<FilePath>\.\.\\Application\\ModuleLayer\\chassis_kinematics\.c</FilePath>' 'chassis_kinematics.c is missing from Keil project'
 

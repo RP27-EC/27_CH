@@ -5,6 +5,6 @@
 #include "main.h"
 
 
-void StartCtrlTask(void const * argument);
+void StartCtrlTask(void *argument);
 
 #endif
