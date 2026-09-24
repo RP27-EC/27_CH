@@ -1,4 +1,4 @@
-/**
+﻿/**
   ******************************************************************************
   * @file    monitor_task.c
   * @brief   监控任务
@@ -9,6 +9,7 @@
 #include "monitor_task.h"
 #include "device.h"
 #include "gimbal_motor.h"
+#include "kt_yaw_motor.h"
 void StartMonitorTask(void const * argument)
 {
 	
@@ -16,7 +17,7 @@ void StartMonitorTask(void const * argument)
 	{
 		rc_sensor.heart_beat(&rc_sensor);
 		imu_sensor.heart_beat(&imu_sensor.work_state);
-		Yaw_Motor.single_heart_beat(&Yaw_Motor);
+		KT_Yaw_Heartbeat();
 //		
 //		My_Judge_Realtime_Task(&My_Judge);
 //		cap.heartbeat(&cap);
@@ -24,4 +25,3 @@ void StartMonitorTask(void const * argument)
 		osDelay(1);
 	}
 }
-

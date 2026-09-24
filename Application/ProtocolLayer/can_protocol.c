@@ -4,10 +4,14 @@
 #include "cap_protocol.h"
 #include "judge.h"
 #include "cap.h"
+#include "kt_yaw_motor.h"
 
 void CAN1_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 {
     switch (rxId) {
+        case KT_YAW_RX_ID:
+            kt_motor[0].get_info(&kt_motor[0], rxBuf);
+            break;
         case 0x201:
             Chassis_Motor[0].rx(&Chassis_Motor[0], rxBuf);
             break;
