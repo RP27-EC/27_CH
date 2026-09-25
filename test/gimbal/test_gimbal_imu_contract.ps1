@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '../..')
 $gimbal = Get-Content -Raw (Join-Path $repo 'Application/ModuleLayer/gimbal.c')
 $control = Get-Content -Raw (Join-Path $repo 'Application/TaskLayer/control_task.c')
+$project = Get-Content -Raw (Join-Path $repo 'MDK-ARM/DM-MC02.uvprojx')
 
 function Assert-Match([string]$text, [string]$pattern, [string]$message) {
     if ($text -notmatch $pattern) {
@@ -35,5 +36,6 @@ Assert-Match $body 'return\s*;' 'offline branch must stop PID calculation'
 
 Assert-Match $control 'hero_gimbal\.yaw\.feedback_mec_angle' 'chassis following must use feedback_mec_angle'
 Assert-NotMatch $control 'hero_gimbal\.yaw\.feedback_angle' 'undefined feedback_angle must not be referenced'
+Assert-Match $project '<FileName>communicate\.c</FileName>[\s\S]*?<FilePath>\.\.\\Application\\ProtocolLayer\\communicate\.c</FilePath>' 'Keil project must compile communicate.c'
 
 Write-Output 'gimbal IMU safety contract passed'

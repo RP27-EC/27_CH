@@ -1355,6 +1355,11 @@
               <FilePath>..\Application\ProtocolLayer\can_protocol.c</FilePath>
             </File>
             <File>
+              <FileName>communicate.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ProtocolLayer\communicate.c</FilePath>
+            </File>
+            <File>
               <FileName>rc_protocol.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\ProtocolLayer\rc_protocol.c</FilePath>
