@@ -38,6 +38,18 @@ Assert-Match $body 'gimbal->yaw\.give_current\s*=\s*0' 'offline branch must clea
 Assert-Match $body 'KT_Yaw_SendIq\(0\)' 'offline branch must command zero KT current'
 Assert-Match $body 'return\s*;' 'offline branch must stop PID calculation'
 
+$gyroTransition = [regex]::Match(
+    $gimbal,
+    'if\s*\(gimbal->last_mode\s*!=\s*GIMBAL_MODE_GYRO\s*&&\s*gimbal->mode\s*==\s*GIMBAL_MODE_GYRO\)\s*\{(?<body>[\s\S]*?)\n\s*\}')
+if (-not $gyroTransition.Success) {
+    throw 'gyro mode transition branch is missing'
+}
+
+$transitionBody = $gyroTransition.Groups['body'].Value
+Assert-Match $transitionBody 'gimbal->yaw\.target_imu_angle\s*=\s*gimbal->yaw\.imu_angle' 'gyro transition must synchronize the IMU target angle'
+Assert-Match $transitionBody 'pid_clear\(&gimbal->yaw\.angle_pid\)' 'gyro transition must clear the angle PID state'
+Assert-Match $transitionBody 'pid_clear\(&gimbal->yaw\.speed_pid\)' 'gyro transition must clear the speed PID state'
+
 Assert-Match $control 'hero_gimbal\.yaw\.feedback_mec_angle' 'chassis following must use feedback_mec_angle'
 Assert-NotMatch $control 'hero_gimbal\.yaw\.feedback_angle' 'undefined feedback_angle must not be referenced'
 Assert-Match $project '<FileName>communicate\.c</FileName>[\s\S]*?<FilePath>\.\.\\Application\\ProtocolLayer\\communicate\.c</FilePath>' 'Keil project must compile communicate.c'

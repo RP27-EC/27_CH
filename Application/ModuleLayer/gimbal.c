@@ -234,6 +234,8 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
     /* 模式切换平滑过渡：切入 GYRO 瞬间，将目标同步为当前空间朝向，防止抽搐甩头 */
     if (gimbal->last_mode != GIMBAL_MODE_GYRO && gimbal->mode == GIMBAL_MODE_GYRO) {
         gimbal->yaw.target_imu_angle = gimbal->yaw.imu_angle;
+        pid_clear(&gimbal->yaw.angle_pid);
+        pid_clear(&gimbal->yaw.speed_pid);
     }
 
     /*==========================================================================
