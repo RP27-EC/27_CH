@@ -10,7 +10,7 @@
       <TargetName>My_C</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
-      <pCCUsed>5060960::V5.06 update 7 (build 960)::.\Version5.06</pCCUsed>
+      <pCCUsed>5060528::V5.06 update 5 (build 528)::ARMCC</pCCUsed>
       <uAC6>0</uAC6>
       <TargetOption>
         <TargetCommonOption>
@@ -633,6 +633,11 @@
               <FileName>can_protocol.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\ProtocolLayer\can_protocol.c</FilePath>
+            </File>
+            <File>
+              <FileName>board_comm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ProtocolLayer\board_comm.c</FilePath>
             </File>
             <File>
               <FileName>rc_protocol.c</FileName>
@@ -2123,6 +2128,21 @@
               <FileName>TransformFunctionsF16.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Drivers\CMSIS\DSP\Source\TransformFunctions\TransformFunctionsF16.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application\ModuleLayer</GroupName>
+          <Files>
+            <File>
+              <FileName>chassis.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ModuleLayer\chassis.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\ModuleLayer\chassis.h</FilePath>
             </File>
           </Files>
         </Group>

@@ -1,11 +1,14 @@
-/**
+﻿/**
   ******************************************************************************
   * @file    control_task.c
   * @brief   总控任务 (Control Task) —— 底盘全向移动 + IMU 姿态解算更新
   ******************************************************************************
   */
 #include "control_task.h"
+#include "board_comm.h"
 #include "can.h"
+
+#define DEG_TO_RAD (0.01745329251994329577f)
 
 /* 外部 CAN 句柄声明 */
 extern CAN_HandleTypeDef hcan1;
@@ -21,6 +24,7 @@ void StartControlTask(void const * argument)
     /* 1. 任务启动前的安全缓冲等待，并初始化底盘对象与 PID 参数 */
     osDelay(100);
     Chassis_Init(&hero_chassis);
+    Board_Comm_Init();
 
     for(;;) 
     {
@@ -29,6 +33,8 @@ void StartControlTask(void const * argument)
             (imu_sensor.work_state.err_code == IMU_DATA_CALI))
         {
             imu_sensor.update(&imu_sensor);
+            Board_Comm_Send_IMU(imu_sensor.info->base_info.yaw * DEG_TO_RAD,
+                                imu_sensor.info->base_info.rate_yaw * DEG_TO_RAD);
         }
 
         /* 3. 【关控与安全保护判定】：
