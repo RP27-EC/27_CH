@@ -1575,9 +1575,9 @@
               <FilePath>..\Application\ControlLayer\carctrl.c</FilePath>
             </File>
             <File>
-              <FileName>carctrl.h</FileName>
+              <FileName>car_control.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\Application\ControlLayer\carctrl.h</FilePath>
+              <FilePath>..\Application\ControlLayer\car_control.h</FilePath>
             </File>
           </Files>
         </Group>

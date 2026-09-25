@@ -6,6 +6,8 @@ $control = Get-Content -Raw (Join-Path $repo 'Application/TaskLayer/control_task
 $project = Get-Content -Raw (Join-Path $repo 'MDK-ARM/DM-MC02.uvprojx')
 $protocol = Get-Content -Raw (Join-Path $repo 'Application/ProtocolLayer/can_protocol.c')
 $communication = Get-Content -Raw (Join-Path $repo 'Application/ProtocolLayer/communicate.c')
+$carControlHeader = Join-Path $repo 'Application/ControlLayer/car_control.h'
+$legacyCarControlHeader = Join-Path $repo 'Application/ControlLayer/carctrl.h'
 
 function Assert-Match([string]$text, [string]$pattern, [string]$message) {
     if ($text -notmatch $pattern) {
@@ -43,5 +45,12 @@ Assert-Match $protocol 'case\s+SLAVE_RX_ID\s*:[\s\S]*?Board_Rx_C1\(rxBuf\)' 'CAN
 Assert-Match $communication 'memcpy\(&board_rx_info\.yaw_imu,\s*&rxBuf\[0\],\s*sizeof\(float\)\)' 'yaw_imu must be decoded from bytes 0..3'
 Assert-Match $communication 'memcpy\(&board_rx_info\.yaw_v,\s*&rxBuf\[4\],\s*sizeof\(float\)\)' 'yaw_v must be decoded from bytes 4..7'
 Assert-Match $communication 'board_rx_info\.is_online\s*=\s*true' 'valid frames must refresh the online state'
+if (-not (Test-Path -LiteralPath $carControlHeader)) {
+    throw 'car_control.h must exist for the current include directives'
+}
+if (Test-Path -LiteralPath $legacyCarControlHeader) {
+    throw 'legacy carctrl.h filename must be removed'
+}
+Assert-Match $project '<FileName>car_control\.h</FileName>[\s\S]*?<FilePath>\.\.\\Application\\ControlLayer\\car_control\.h</FilePath>' 'Keil project must reference car_control.h'
 
 Write-Output 'gimbal IMU safety contract passed'
