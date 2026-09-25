@@ -78,7 +78,7 @@ static void test_forward_applies_motor_directions(void)
     const float expected[4] = {6000.0f, -6000.0f, 6000.0f, -6000.0f};
     reset_fixture();
 
-    Chassis_Update(660, 0, 0, false);
+    Chassis_Update(660, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
     for (unsigned int i = 0; i < 4; ++i) {
         expect_near(speed_pid[i].target, expected[i], "forward target");
@@ -90,7 +90,7 @@ static void test_forward_applies_motor_directions(void)
 static void test_small_input_has_no_deadzone(void)
 {
     reset_fixture();
-    Chassis_Update(1, 0, 0, false);
+    Chassis_Update(1, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
     if (fabsf(speed_pid[0].target) < EPSILON) {
         fail("one-count input was incorrectly removed by a deadzone");
@@ -116,7 +116,7 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
         motor_tx[i].torque_current_raw = 13;
     }
 
-    Chassis_Update(660, 660, 660, true);
+    Chassis_Update(660, 660, 660, 0.0f, CAR_MODE_GYRO, true);
 
     for (unsigned int i = 0; i < 4; ++i) {
         const float *fields[] = {
@@ -139,14 +139,40 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
 static void test_control_recovers_after_failsafe(void)
 {
     reset_fixture();
-    Chassis_Update(0, 0, 0, true);
+    Chassis_Update(0, 0, 0, 0.0f, CAR_MODE_GYRO, true);
     group_send_calls = 0;
 
-    Chassis_Update(330, 0, 0, false);
+    Chassis_Update(330, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
     expect_near(speed_pid[0].target, 3000.0f, "recovery target");
     if (speed_calls[0] != 1 || group_send_calls != 1) {
         fail("normal control did not resume after failsafe");
+    }
+}
+
+static void test_gyro_translation_follows_gimbal_heading(void)
+{
+    const float half_pi = 1.57079632679f;
+    reset_fixture();
+
+    Chassis_Update(660, 0, 0, half_pi, CAR_MODE_GYRO, false);
+
+    expect_near(speed_pid[0].target, -6000.0f, "gyro FL target");
+    expect_near(speed_pid[1].target, -6000.0f, "gyro FR target");
+    expect_near(speed_pid[2].target, 2000.0f, "gyro BL target");
+    expect_near(speed_pid[3].target, 2000.0f, "gyro BR target");
+}
+
+static void test_gyro_follow_rotates_toward_positive_angle(void)
+{
+    const float half_pi = 1.57079632679f;
+    reset_fixture();
+
+    Chassis_Update(0, 0, 0, half_pi, CAR_MODE_GYRO, false);
+
+    if (speed_pid[0].target >= 0.0f || speed_pid[1].target >= 0.0f ||
+        speed_pid[2].target >= 0.0f || speed_pid[3].target >= 0.0f) {
+        fail("positive gimbal angle must command positive chassis rotation");
     }
 }
 
@@ -156,6 +182,8 @@ int main(void)
     test_small_input_has_no_deadzone();
     test_failsafe_clears_state_and_sends_zero_once();
     test_control_recovers_after_failsafe();
-    puts("4 chassis control tests passed");
+    test_gyro_translation_follows_gimbal_heading();
+    test_gyro_follow_rotates_toward_positive_angle();
+    puts("6 chassis control tests passed");
     return EXIT_SUCCESS;
 }

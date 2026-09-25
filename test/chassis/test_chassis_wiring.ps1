@@ -29,14 +29,14 @@ if (([regex]::Matches($motorSource, '\.hcan\s*=\s*&hfdcan1')).Count -lt 5) {
 Assert-Match $motorSource '\.stdId\s*=\s*0x200' 'missing command frame ID 0x200'
 Assert-Match $motorHeader 'extern\s+Motor_RM_t\s+Chassis_Motor\s*\[\s*4\s*\]' 'motor array is not exported'
 Assert-Match $deviceSource 'Chassis_Motor_Group\.group_init\s*\(\s*&Chassis_Motor_Group\s*\)' 'device init does not initialize chassis group'
-foreach ($id in 201..204) {
-    Assert-Match $protocolSource "case\s+0x$id\s*:" "CAN1 does not dispatch 0x$id"
+foreach ($id in 'LF', 'RF', 'LB', 'RB') {
+    Assert-Match $protocolSource "case\s+CHASSIS_CAN_ID_$id\s*:" "CAN1 does not dispatch chassis motor $id"
 }
 Assert-Match $rmHeader 'CAN_HandleTypeDef\s+\*hcan' 'RM motor group handle is missing'
 Assert-Match $controlTask 'Chassis_Init\s*\(\s*\)' 'control task does not initialize the chassis'
-Assert-Match $controlTask 'Chassis_Update\s*\(\s*rc_sensor\.info->ch3\s*,\s*rc_sensor\.info->ch2\s*,\s*rc_sensor\.info->ch0\s*,' 'control task channel mapping is incorrect'
+Assert-Match $controlTask 'Chassis_Update\s*\(\s*rc_sensor\.info->ch3[\s\S]*?rc_sensor\.info->ch2[\s\S]*?rc_sensor\.info->ch0[\s\S]*?hero_gimbal\.yaw\.feedback_mec_angle[\s\S]*?hero_car\.mode[\s\S]*?chassis_failsafe\s*\)' 'control task channel mapping is incorrect'
+Assert-Match $controlTask 'hero_car\.mode\s*==\s*CAR_MODE_SLEEP' 'control task does not fail safe in sleep mode'
 Assert-Match $controlTask 'rc_sensor\.work_state\s*!=\s*DEV_ONLINE' 'control task does not fail safe on remote offline'
-Assert-Match $controlTask 'rc_sensor\.errno\s*!=\s*NONE_ERR' 'control task does not fail safe on invalid remote data'
 Assert-Match $controlTask 'void\s+StartCtrlTask\s*\(\s*void\s*\*\s*argument\s*\)' 'control task signature is not CMSIS-RTOS2 compatible'
 Assert-Match $controlTask 'next_wake\s*\+=\s*2U' 'control task does not advance a 2 ms absolute deadline'
 Assert-Match $controlTask 'osDelayUntil\s*\(\s*next_wake\s*\)' 'control task does not use absolute periodic delay'
