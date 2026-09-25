@@ -23,4 +23,11 @@ if ($updateIndex -lt 0 -or $sendIndex -le $updateIndex) {
 
 Assert-Match $project '<GroupName>Protocol</GroupName>[\s\S]*?<FileName>board_comm\.c</FileName>[\s\S]*?<FilePath>\.\.\\Application\\ProtocolLayer\\board_comm\.c</FilePath>' 'Keil Protocol group must include board_comm.c'
 
+if ($control -match 'Chassis_t|Chassis_Init|Chassis_Control_Loop') {
+    throw 'upper control task must not own chassis control'
+}
+if ($project -match '<FilePath>\.\.\\Application\\ModuleLayer\\chassis\.c</FilePath>') {
+    throw 'upper Keil project must not compile the chassis module'
+}
+
 Write-Output 'board_comm integration contract passed'

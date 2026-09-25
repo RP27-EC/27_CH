@@ -2131,21 +2131,6 @@
             </File>
           </Files>
         </Group>
-        <Group>
-          <GroupName>Application\ModuleLayer</GroupName>
-          <Files>
-            <File>
-              <FileName>chassis.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Application\ModuleLayer\chassis.c</FilePath>
-            </File>
-            <File>
-              <FileName>chassis.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Application\ModuleLayer\chassis.h</FilePath>
-            </File>
-          </Files>
-        </Group>
       </Groups>
     </Target>
   </Targets>

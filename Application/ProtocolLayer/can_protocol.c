@@ -1,47 +1,43 @@
-#include "can_protocol.h"
-#include "../ModuleLayer/chassis.h"
-
-extern Chassis_t hero_chassis;
-
+Ôªø#include "can_protocol.h"
 /**
- *  @brief  CAN1 Ω” ’ ˝æ›
+ *  @brief  CAN1 Êé•Êî∂Êï∞ÊçÆ
  */
 void CAN1_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 {
 	switch (rxId)
 	{
-		case 0x0b:
-		{
-			L_Wheel.rx(&L_Wheel, rxBuf);
+		// case 0x0b:
+		// {
+		// 	L_Wheel.rx(&L_Wheel, rxBuf);
 			
-			break;
-		}
-		case 0x011://Ω” ’ID
-		{
-			Yaw_Motor.rx(&Yaw_Motor, rxBuf);
-			break;
-		}
-		case 0x205:
-		{
-			R_Fric.rx(&R_Fric, rxBuf);
-			break;
-		}
+		// 	break;
+		// }
+		// case 0x011://Êé•Êî∂ID
+		// {
+		// 	Yaw_Motor.rx(&Yaw_Motor, rxBuf);
+		// 	break;
+		// }
+		// case 0x205:
+		// {
+		// 	R_Fric.rx(&R_Fric, rxBuf);
+		// 	break;
+		// }
 
-		case 0x201:
-		case 0x202:
-		case 0x203:
-		case 0x204:
-		{
-			Chassis_Parse_Feedback(&hero_chassis, rxId, rxBuf);
-			break;
-		}
+		// case 0x201:
+		// case 0x202:
+		// case 0x203:
+		// case 0x204:
+		// {
+		// 	Chassis_Parse_Feedback(&hero_chassis, rxId, rxBuf);
+		// 	break;
+		// }
 
 		default:
 			break;
 	}
 }
 /**
- *  @brief  CAN2 Ω” ’ ˝æ›
+ *  @brief  CAN2 Êé•Êî∂Êï∞ÊçÆ
  */
 void CAN2_rxDataHandler(uint32_t canId, uint8_t *rxBuf)
 {
