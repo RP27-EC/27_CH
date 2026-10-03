@@ -1,4 +1,4 @@
-#ifndef __KT_motor_H
+﻿#ifndef __KT_motor_H
 #define __KT_motor_H
 
 #include "stm32f4xx.h"                  // Device header

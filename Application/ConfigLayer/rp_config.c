@@ -1,14 +1,22 @@
 /**
- * @file        rp_config.c
- * @author      RobotPilots
- * @Version     v1.0
- * @brief       RobotPilots Robots' Configuration.
- * @update
- *              v1.0(9-September-2020)
+ * @file    rp_config.c
+ * @author  RobotPilots
+ * @Version v1.0
+ * @brief   RobotPilots机器人系统配置文件
+ * @update  v1.0 (9-September-2020)
+ *
+ * 本文件是RobotPilots机器人平台的系统配置入口文件。
+ * 负责汇总和初始化各模块的配置参数，包括：
+ * - 硬件外设配置（电机、传感器、通信接口等）
+ * - 通信协议配置（CAN、串口等）
+ * - 控制参数配置（PID参数、速度限制等）
+ * - 设备ID和地址分配
+ *
+ * 所有模块的全局配置结构体在此文件中统一管理。
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "rp_config.h"
+#include "rp_config.h"      /* RobotPilots系统配置头文件 */
 
 /* Private macro -------------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
@@ -18,3 +26,4 @@
 /* Private functions ---------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
 
+/* 请在此处添加系统配置初始化代码和全局配置变量 */

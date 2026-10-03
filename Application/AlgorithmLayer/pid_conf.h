@@ -1,8 +1,8 @@
-#ifndef __PID_CONF_H
+ï»¿#ifndef __PID_CONF_H
 #define __PID_CONF_H
 
 
-// M3508µç»úPID²ÎÊı
+// M3508ç”µæœºPIDå‚æ•°
 //#define CHAS_SP_MAX_OUT 12000.0f
 #define CHAS_SP_MAX_INTEGRAL 6000.0f
 #define CHAS_SP_MAX_I_OUT 6000.0f
@@ -40,7 +40,7 @@
 #define SHOOT_AG_KI 0.0f
 #define SHOOT_AG_KD 0.0f
 
-// GM6020µç»úPID²ÎÊı
+// GM6020ç”µæœºPIDå‚æ•°
 #define GIM_SP_MAX_OUT 25000.0f
 #define GIM_SP_MAX_INTEGRAL 8000.0f
 #define GIM_SP_MAX_I_OUT 10000.0f
@@ -48,7 +48,7 @@
 #define GIM_AG_MAX_INTEGRAL 10000.0f
 #define GIM_AG_MAX_I_OUT 6000.0f
 
-// machineÄ£Ê½
+// machineæ¨¡å¼
 #define YAW_MACHINE_SP_KP 350.0f//50.0f
 #define YAW_MACHINE_SP_KI 1.f//2.0f
 #define YAW_MACHINE_SP_KD 0.0f
@@ -63,7 +63,7 @@
 #define PITCH_MACHINE_AG_KI 0.0f
 #define PITCH_MACHINE_AG_KD 0.0f
 
-// gyroÄ£Ê½
+// gyroæ¨¡å¼
 #define YAW_GYRO_SP_KP 500.0f//1000.0f
 #define YAW_GYRO_SP_KI 2.f//10.0f
 #define YAW_GYRO_SP_KD 0.0f
@@ -79,7 +79,7 @@
 #define PITCH_GYRO_AG_KD 0.0f
 
 
-// M2006µç»úpid²ÎÊı
+// M2006ç”µæœºpidå‚æ•°
 #define DIAL_SP_MAX_OUT 10000.0f
 #define DIAL_SP_MAX_INTEGRAL 10000.0f
 #define DIAL_SP_MAX_I_OUT 6000.0f

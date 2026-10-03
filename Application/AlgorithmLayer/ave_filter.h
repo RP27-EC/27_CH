@@ -1,4 +1,4 @@
-/**
+ï»¿/**
   ******************************************************************************
   * @file           : ave_filter.c\h
   * @brief          : 
@@ -18,7 +18,7 @@ typedef struct
 	int16_t index;
 	float value[ave_filter_times_max];
 	float value_ave;
-	float filter_times;		//ÂË²¨´°¿ÚÊı×é³¤¶È
+	float filter_times;		//æ»¤æ³¢çª—å£æ•°ç»„é•¿åº¦
 }ave_filter_t;
 
 void ave_fil_init(ave_filter_t *ave_fil);

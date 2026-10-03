@@ -1,4 +1,4 @@
-/**
+﻿/**
  ******************************************************************************
  * @file    can_protocol.h
  * @brief   CAN通信协议层
@@ -23,20 +23,20 @@
 #define SLAVE_RX_ID 
 
 /*
-//CAN1
-#define ID_GIMB_YAW 	0x142
-#define ID_DAIL 		0x207 //0x1FF  45
-#define ID_IMAGE		0x206 //0x1FF  23
-#define ID_TELESCOPE	0x205 //0x1FF  01
+//CAN1 —— 六摩擦轮 RM3508（反馈 ID = 0x200 + 电机ID，发送分两组打包）
+#define ID_FRIC_F_U 	0x201 //0x200 组槽位 0
+#define ID_FRIC_F_R 	0x202 //0x200 组槽位 1
+#define ID_FRIC_F_L 	0x203 //0x200 组槽位 2
+#define ID_FRIC_B_U 	0x205 //0x1FF 组槽位 0
+#define ID_FRIC_B_R 	0x206 //0x1FF 组槽位 1
+#define ID_FRIC_B_L 	0x207 //0x1FF 组槽位 2
+（以上六个 ID 宏实际定义在 motor.h，与电机实例放在一起）
 
-//CAN2
-#define ID_FRIC_B_UP 	0x201 //0x200  01
-#define ID_FRIC_F_UP 	0x202 //0x200  23
-#define ID_FRIC_B_R 	0x203 //0x200  45
-#define ID_FRIC_B_L 	0x204 //0x200  67
-#define ID_FRIC_F_R 	0x205 //0x1FF  01
-#define ID_GIMB_P 		0x206 //0x1FF  23
-#define ID_FRIC_F_L 	0x207 //0x1FF  45
+//CAN2 —— 板间通信 + Pitch 达妙电机
+#define SLAVE_RX_PITCH_TAR_CAN_ID  0x0D1  // 收下层板 Pitch 目标 + is_fric_on
+#define MASTER_RX_YAW_IMU_CAN_ID   0x021  // 发下层板 yaw IMU
+#define MASTER_RX_STATE_CAN_ID     0x023  // 发下层板摩擦轮状态
+#define ID_PITCH_DM                0x011  // Pitch 达妙 MIT 协议反馈
 */
 
 

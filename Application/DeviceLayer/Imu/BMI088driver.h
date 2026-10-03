@@ -1,4 +1,4 @@
-#ifndef BMI088DRIVER_H
+﻿#ifndef BMI088DRIVER_H
 #define BMI088DRIVER_H
 
 #include "struct_typedef.h"

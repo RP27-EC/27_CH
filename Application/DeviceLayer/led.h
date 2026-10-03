@@ -1,4 +1,4 @@
-#ifndef _LED_H
+ï»¿#ifndef _LED_H
 #define _LED_H
 
 #include "stm32f4xx_hal.h"
@@ -44,7 +44,7 @@ typedef struct led
 {
   led_state_e state;
   led_colour_e colour;
-  float 	   blink_fre; //Ã¿ÃëÁÁ¶àÉÙ´Î
+  float 	   blink_fre; //æ¯ç§’äº®å¤šå°‘æ¬¡
 	
 } led_t;
 

@@ -1,4 +1,4 @@
-#ifndef BMI088MIDDLEWARE_H
+﻿#ifndef BMI088MIDDLEWARE_H
 #define BMI088MIDDLEWARE_H
 
 #include "struct_typedef.h"

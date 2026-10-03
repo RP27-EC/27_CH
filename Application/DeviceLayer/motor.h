@@ -10,30 +10,38 @@
 #include "motor_def.h"
 #include "drv_can.h"
 
-/*µç»ú¶¨Òå²½Öè------------------------------------------------*/
-//Èç¹ûÒªÔöÉ¾¸ÄRMµç»ú
-//1.rm_motor_driverÌí¼Óµç»úID¡¢CANÀàĞÍ 
-//2.dev_rm_motor_list_eÀï¼Óµç»úÃû×Ö
-//3.CAN1_rxDataHandler£¬CAN2_rxDataHandlerÀïÌí¼Ó»ñÈ¡µç»úĞÅÏ¢µÄº¯Êı
-//4.rm_motor_t rm_motor[]Êı×éÀï¼Óµç»ú×Ü½á¹¹Ìå
-//5.¶¨Òåpid½á¹¹ÌåÒÔ¼°ÔÚrm_motor_list_initÀïÓÃmo tor_pid_init³õÊ¼»¯pid½á¹¹Ìå
-//Èç¹ûÒªÇı¶¯µç»ú¾ÍÔÚmotor_outÀï¸³Öµ£¬ÓÉCAN_SendÍ³Ò»·¢ËÍ
-/*µç»úIDºê¶¨Òå------------------------------------------------*/
-#define ID_GIMB_P 		0x206 //0x1FF  23
+
+
+/*ç”µæœºIDå®å®šä¹‰------------------------------------------------*/
 #define ID_GIMB_YAW 	0x142
+
+/* å…­æ‘©æ“¦è½® RM3508 åé¦ˆ IDï¼ˆCAN1ï¼Œåé¦ˆæŠ¥æ–‡ ID = 0x200 + ç”µæœºIDï¼‰ */
+#define ID_FRIC_F_U		0x201	/* å‰å±‚ä¸Šï¼Œ0x200 ç»„æ§½ä½ 0 */
+#define ID_FRIC_F_R		0x202	/* å‰å±‚å³ï¼Œ0x200 ç»„æ§½ä½ 1 */
+#define ID_FRIC_F_L		0x203	/* å‰å±‚å·¦ï¼Œ0x200 ç»„æ§½ä½ 2 */
+#define ID_FRIC_B_U		0x205	/* åå±‚ä¸Šï¼Œ0x1FF ç»„æ§½ä½ 0 */
+#define ID_FRIC_B_R		0x206	/* åå±‚å³ï¼Œ0x1FF ç»„æ§½ä½ 1 */
+#define ID_FRIC_B_L		0x207	/* åå±‚å·¦ï¼Œ0x1FF ç»„æ§½ä½ 2 */
 
 extern  KT_motor_t kt_motor[1];
 extern  Motor_HT_t L_Wheel;
 extern  Motor_DM_t Yaw_Motor;
-extern  Motor_RM_t R_Fric;
-extern  Motor_RM_Group_t RM_Group;
+
+/* å…­æ‘©æ“¦è½®ç”µæœºï¼ˆRM3508ï¼ŒCAN1ï¼‰ï¼šå‰å±‚ F_* èµ° 0x200 ç»„ï¼Œåå±‚ B_* èµ° 0x1FF ç»„ */
+extern  Motor_RM_t F_U_Fric;
+extern  Motor_RM_t F_R_Fric;
+extern  Motor_RM_t F_L_Fric;
+extern  Motor_RM_t B_U_Fric;
+extern  Motor_RM_t B_R_Fric;
+extern  Motor_RM_t B_L_Fric;
+extern  Motor_RM_Group_t Fric_F_Group;
+extern  Motor_RM_Group_t Fric_B_Group;
 /* Exported functions --------------------------------------------------------*/
 void rm_motor_list_init(void);
 void rm_motor_list_heart_beat(void);
 void kt_motor_list_init(void);
 void ht_motor_list_init(void);
 void dm_motor_list_init(void);
-uint8_t rm_motor_list_workstate(void);
 
 #endif
 

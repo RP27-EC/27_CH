@@ -1,4 +1,4 @@
-#ifndef __RP_DEVICE_CONFIG_H
+﻿#ifndef __RP_DEVICE_CONFIG_H
 #define __RP_DEVICE_CONFIG_H
 
 /* Includes ------------------------------------------------------------------*/

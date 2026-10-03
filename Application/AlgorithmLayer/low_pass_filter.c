@@ -1,8 +1,66 @@
-
+/**
+  ******************************************************************************
+  * @file           : low_pass_filter.c
+  * @brief          : 一阶低通滤波器实现
+  ******************************************************************************
+  * @details
+  * 本文件实现了一阶指数加权低通滤波器（First-Order Low-Pass Filter）。
+  * 低通滤波器允许低频信号通过，衰减高频信号，常用于抑制传感器数据中的高频噪声。
+  *
+  * 算法原理（一阶IIR低通滤波）：
+  *   Y(n) = alpha * X(n) + (1 - alpha) * Y(n-1)
+  *
+  *   其中：
+  *     X(n)    - 当前时刻的输入信号
+  *     Y(n-1)  - 上一次的滤波输出
+  *     Y(n)    - 当前时刻的滤波输出
+  *     alpha   - 滤波系数，取值范围 (0, 1)
+  *
+  * 滤波系数 alpha 的含义：
+  *   - alpha 越大（接近1），滤波效果越弱，输出越接近原始输入，响应越快
+  *   - alpha 越小（接近0），滤波效果越强，输出越平滑，但延迟越大
+  *   - alpha = 0.5 时，当前输入和历史输出各占一半权重
+  *
+  * 与均值滤波的比较：
+  *   - 低通滤波只需保存上一次输出，内存开销小
+  *   - 低通滤波为递归结构（IIR），响应更灵敏
+  *   - 均值滤波为非递归结构（FIR），相位特性更好
+  *
+  * 适用场景：
+  *   - 陀螺仪、加速度计等IMU传感器数据平滑
+  *   - 编码器速度/位置信号滤波
+  *   - 电位器、ADC等模拟量采集的数据去噪
+  ******************************************************************************
+  */
 
 #include "low_pass_filter.h"
 
-float low_pass_filter(float input, float prevOutput, float alpha) 
-	{
-    return alpha * input + (1.0f - alpha) * prevOutput;
-	}
+/**
+ * @brief  一阶低通滤波计算
+ * @param  input:     当前时刻的原始输入信号值
+ * @param  prevOutput: 上一次的滤波输出值（即 Y(n-1)）
+ * @param  alpha:     滤波系数，取值范围 (0, 1)
+ *                    - alpha 越大，滤波越弱，响应越快
+ *                    - alpha 越小，滤波越强，输出越平滑
+ * @retval float      当前时刻的滤波输出值 Y(n)
+ * @note   使用示例：
+ *         float filtered = 0.0f;  // 初始滤波输出
+ *         // 在每次采样回调中调用：
+ *         filtered = low_pass_filter(raw_adc_value, filtered, 0.1f);
+ *
+ *         该函数为无状态函数（不保存历史值），调用者需自行维护 prevOutput。
+ *         这种设计使得函数可以灵活地用于多个独立的滤波通道。
+ */
+float low_pass_filter(float input, float prevOutput, float alpha)
+{
+	/*
+	 * 一阶低通滤波核心公式：
+	 *   Y(n) = alpha * X(n) + (1 - alpha) * Y(n-1)
+	 *
+	 * 分解来看：
+	 *   alpha * input           -> 当前输入的加权部分（高频分量保留程度）
+	 *   (1.0f - alpha) * prevOutput -> 历史输出的加权部分（惯性/平滑程度）
+	 *   两者相加得到当前滤波输出
+	 */
+	return alpha * input + (1.0f - alpha) * prevOutput;
+}

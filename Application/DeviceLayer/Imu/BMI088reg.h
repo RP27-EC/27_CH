@@ -1,4 +1,4 @@
-#ifndef BMI088REG_H
+﻿#ifndef BMI088REG_H
 #define BMI088REG_H
 
 #define BMI088_ACC_CHIP_ID 0x00 // the register is  " Who am I "

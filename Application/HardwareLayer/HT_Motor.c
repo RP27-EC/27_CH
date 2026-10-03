@@ -1,26 +1,58 @@
-/**
- * @file        Ht_Motor.c
+ï»¿/**
+ * @file        HT_Motor.c
  * @author      2025_YZJ
  * @Version     V1.0
- * @date        8-Febraruary-2025
- * @brief       º£Ì©µç»ú°ü(ÊÊÓÃÐÍºÅHT-03£©
- * @brief       »¹Î´ÍêÉÆ£¬ÓÉÓÚÖ»×÷ÎªÂÖì±µç»úÊ¹ÓÃ£¬Ö»Ð´ÁË²¿·Ö¹¦ÄÜ
+ * @date        8-February-2025
+ * @brief       æµ·æ³°(HT)ç”µæœºé©±åŠ¨åŒ… - é€‚ç”¨åž‹å·HT-03
+ *              æœ¬æ–‡ä»¶å®žçŽ°äº†æµ·æ³°HT-03ç”µæœºçš„MITæŽ§åˆ¶åè®®é©±åŠ¨ã€‚
+ *              HT-03é€šå¸¸ç”¨ä½œè½®æ¯‚ç”µæœºï¼Œå› æ­¤éƒ¨åˆ†åŠŸèƒ½ï¼ˆå¦‚å¤šåœˆè§’åº¦ç´¯è®¡ï¼‰æœ‰æ‰€ç®€åŒ–ã€‚
+ *
+ *              ä¸»è¦åŠŸèƒ½ï¼š
+ *              1. å•ç”µæœºæŽ§åˆ¶ï¼šå¸åŠ›ã€ç½®é›¶ç¼–ç å™¨ã€è½¬çŸ©æŽ§åˆ¶ã€é€Ÿåº¦æŽ§åˆ¶ã€è§’åº¦æŽ§åˆ¶
+ *              2. ç”µæœºç»„æŽ§åˆ¶ï¼šå¤šç”µæœºæ‰¹é‡æŽ§åˆ¶ï¼ˆæœ€å¤š4ä¸ªï¼‰
+ *              3. æ•°æ®æŽ¥æ”¶ä¸Žè§£æžï¼šè§£æžç¼–ç å™¨å€¼ã€é€Ÿåº¦ã€è½¬çŸ©ç”µæµ
+ *              4. ç¼–ç å™¨åˆ°ç”µæœºè§’åº¦è½¬æ¢ï¼šå¤„ç†è¿‡é›¶ç‚¹å’Œç´¯è®¡è§’åº¦
+ *              5. å¿ƒè·³æ£€æµ‹ï¼šç¦»çº¿è®¡æ•°ä¸Žè®¾å¤‡åœ¨çº¿çŠ¶æ€ç®¡ç†
+ *
+ *              ä¸ŽDMç”µæœºçš„åŒºåˆ«ï¼š
+ *              - HTç”µæœºä½¿ç”¨ä¸åŒçš„å‚æ•°èŒƒå›´ï¼ˆHT_P_MIN/HT_P_MAXç­‰ï¼‰
+ *              - HTç”µæœºçš„é€Ÿåº¦ä¹˜ä»¥åŠ›çŸ©å¸¸æ•°å¾—åˆ°å®žé™…è½¬çŸ©
+ *              - HTç”µæœºä½¿ç”¨ç§¯åˆ†æ³•ç´¯åŠ é€Ÿåº¦å¾—åˆ°è§’åº¦ï¼ˆmotor_angle_sum_viï¼‰
+ *              - HTç”µæœºçš„ç¼–ç å™¨åˆ°è§’åº¦è½¬æ¢ä½¿ç”¨åº¦æ•°å•ä½è€Œéžå¼§åº¦
+ *
+ * @note        å°šæœªå®Œå…¨å®Œå–„ï¼Œç”±äºŽä¸»è¦ä½œä¸ºè½®æ¯‚ç”µæœºä½¿ç”¨ï¼Œéƒ¨åˆ†åŠŸèƒ½æœªå®žçŽ°
  */
- 
+
 /* Includes ------------------------------------------------------------------*/
 #include "HT_Motor.h"
 
+/* å†…éƒ¨é™æ€å˜é‡ --------------------------------------------------------------*/
+/**
+  * æµ·æ³°ç”µæœºå‘½ä»¤æŠ¥æ–‡ç¼“å†²åŒºï¼ˆ8å­—èŠ‚ï¼‰
+  * ä¸Žè¾¾ç§’ç”µæœºç±»ä¼¼çš„å‘½ä»¤å¸§æ ¼å¼ï¼šå‰7å­—èŠ‚ä¸º0xFFï¼Œæœ€åŽ1å­—èŠ‚ä¸ºå‘½ä»¤ç 
+  * 0xFC: è¿›å…¥ç”µæœºæŽ§åˆ¶æ¨¡å¼
+  * 0xFD: é€€å‡ºç”µæœºæŽ§åˆ¶æ¨¡å¼
+  * 0xFE: ç½®é›¶ç¼–ç å™¨ä½ç½®
+  */
 static uint8_t Motor_Command[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD};
+
+/* å†…éƒ¨å‡½æ•°å‰å‘å£°æ˜Ž */
 static void Motor_Send_Data(Motor_HT_t *motor, uint8_t* buf);
 static void Motor_Send_Command(Motor_HT_t *motor, Motor_MIT_Command_e Command);
 static void HT_Motor_SetControlPara(Motor_HT_t *motor);
 static uint16_t float_to_uint(float x, float x_min, float x_max, uint8_t bits);
 static float uint_to_float(uint16_t x_int, float x_min, float x_max, uint8_t bits);
 static void Encoder_to_Motor_Angle(Motor_HT_t *motor);
-uint8_t flag_rx;
+
 /**
-  * @brief          µ¥µç»úÐ¶Á¦
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * æŽ¥æ”¶æ ‡å¿—ä½ï¼ˆç”¨äºŽè°ƒè¯•æˆ–å…¶ä»–ç”¨é€”ï¼‰
+  */
+uint8_t flag_rx;
+
+/* ========================================== å•ç”µæœºæŽ§åˆ¶å‡½æ•° ========================================== */
+/**
+  * @brief          å•ç”µæœºå¸åŠ›
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_Sleep(Motor_HT_t *motor)
@@ -29,7 +61,7 @@ void HT_Single_Motor_Sleep(Motor_HT_t *motor)
 	{
 //		if(motor->state->mode == Motor_UnControl)
 //		{
-//			Motor_Send_Command(motor, Enter_Motor_Mode);//¿ªÆôµç»ú¿ØÖÆ
+//			Motor_Send_Command(motor, Enter_Motor_Mode);//å¼€å¯ç”µæœºæŽ§åˆ¶
 //			motor->state->mode = Motor_Control;
 //		}
 		
@@ -41,23 +73,23 @@ void HT_Single_Motor_Sleep(Motor_HT_t *motor)
 }
 
 /**
-  * @brief          µ¥µç»úÖÃÁã±àÂëÆ÷
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * @brief          å•ç”µæœºç½®é›¶ç¼–ç å™¨
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_ZeroPosSensor(Motor_HT_t *motor)
 {
 	if(motor != NULL)
 	{
-		motor->single_sleep(motor);//ÏÈ¶Ôµç»úÐ¶Á¦
+		motor->single_sleep(motor);//å…ˆå¯¹ç”µæœºå¸åŠ›
 		
 		Motor_Send_Command(motor, Zero_Position_Sensor);
 	}
 }
 
 /**
-  * @brief          µ¥µç»ú¿ØÖÆÊä³ö×ª¾Ø,º¬ÓÐCAN·¢ËÍ²Ù×÷
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * @brief          å•ç”µæœºæŽ§åˆ¶è¾“å‡ºè½¬çŸ©,å«æœ‰CANå‘é€æ“ä½œ
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_Set_Torque(Motor_HT_t *motor)
@@ -66,7 +98,7 @@ void HT_Single_Motor_Set_Torque(Motor_HT_t *motor)
 		{
 			if(motor->state->mode == Motor_UnControl)
 			{
-				Motor_Send_Command(motor, Enter_Motor_Mode);//¿ªÆôµç»ú¿ØÖÆ
+				Motor_Send_Command(motor, Enter_Motor_Mode);//å¼€å¯ç”µæœºæŽ§åˆ¶
 				motor->state->mode = Motor_Control;
 			}
 			else
@@ -83,8 +115,8 @@ void HT_Single_Motor_Set_Torque(Motor_HT_t *motor)
 }
 
 /**
-  * @brief          µ¥µç»ú¿ØÖÆËÙ¶È,ÐèÒª×ÔÐÐÉèÖÃkd\target_speed\torque,º¬ÓÐCAN·¢ËÍ²Ù×÷
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * @brief          å•ç”µæœºæŽ§åˆ¶é€Ÿåº¦,éœ€è¦è‡ªè¡Œè®¾ç½®kd\target_speed\torque,å«æœ‰CANå‘é€æ“ä½œ
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_Set_Speed(Motor_HT_t *motor)
@@ -93,7 +125,7 @@ void HT_Single_Motor_Set_Speed(Motor_HT_t *motor)
 		{
 			if(motor->state->mode == Motor_UnControl)
 			{
-				Motor_Send_Command(motor, Enter_Motor_Mode);//¿ªÆôµç»ú¿ØÖÆ
+				Motor_Send_Command(motor, Enter_Motor_Mode);//å¼€å¯ç”µæœºæŽ§åˆ¶
 				motor->state->mode = Motor_Control;
 			}
 			
@@ -107,8 +139,8 @@ void HT_Single_Motor_Set_Speed(Motor_HT_t *motor)
 }
 
 /**
-  * @brief          µ¥µç»ú¿ØÖÆ½Ç¶È,ÐèÒª×ÔÐÐÉèÖÃkp\target_angle\kd\target_speed\torque,º¬ÓÐCAN·¢ËÍ²Ù×÷
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * @brief          å•ç”µæœºæŽ§åˆ¶è§’åº¦,éœ€è¦è‡ªè¡Œè®¾ç½®kp\target_angle\kd\target_speed\torque,å«æœ‰CANå‘é€æ“ä½œ
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_Set_Angle(Motor_HT_t *motor)
@@ -117,7 +149,7 @@ void HT_Single_Motor_Set_Angle(Motor_HT_t *motor)
 		{
 			if(motor->state->mode == Motor_UnControl)
 			{
-				Motor_Send_Command(motor, Enter_Motor_Mode);//¿ªÆôµç»ú¿ØÖÆ
+				Motor_Send_Command(motor, Enter_Motor_Mode);//å¼€å¯ç”µæœºæŽ§åˆ¶
 				motor->state->mode = Motor_Control;
 			}
 			
@@ -128,26 +160,52 @@ void HT_Single_Motor_Set_Angle(Motor_HT_t *motor)
 }
 
 /**
-  * @brief          µç»úCANÖÐ¶Ï½ÓÊÕÊý¾Ý´¦Àí
-  * @param[in]      Motor_HT_t *motor      µç»ú±¾Ìå
-  * @param[in]      uint8_t *rxBuf						CAN½ÓÊÕÊý¾Ý°ü
-  * @retval         none
+  * @brief          æµ·æ³°ç”µæœºCANä¸­æ–­æŽ¥æ”¶æ•°æ®å¤„ç† - è§£æžåé¦ˆæŠ¥æ–‡
+  * @param[in]      Motor_HT_t *motor:     ç”µæœºæœ¬ä½“ç»“æž„ä½“æŒ‡é’ˆ
+  * @param[in]      uint8_t *rxBuf:        CANæŽ¥æ”¶çš„8å­—èŠ‚æ•°æ®ç¼“å†²åŒº
+  * @retval         æ— 
+  * @note   æµ·æ³°ç”µæœºåé¦ˆæŠ¥æ–‡æ ¼å¼ä¸Žè¾¾ç§’ç”µæœºç±»ä¼¼(8å­—èŠ‚)ï¼š
+  *         Byte0: [7:4]=é”™è¯¯ç , [3:0]=ç¼–ç å™¨å€¼é«˜4ä½
+  *         Byte1: [7:0]=ç¼–ç å™¨å€¼é«˜8ä½
+  *         Byte2: [7:0]=ç¼–ç å™¨å€¼ä½Ž8ä½ (ç¼–ç å™¨å…±16ä½ï¼ŒèŒƒå›´[HT_P_MIN, HT_P_MAX])
+  *         Byte3: [7:4]=é€Ÿåº¦é«˜4ä½, [3:0]=ç¼–ç å™¨å€¼ä½Ž4ä½
+  *         Byte4: [7:4]=é€Ÿåº¦ä½Ž8ä½é«˜4ä½, [3:0]=è½¬çŸ©ç”µæµé«˜4ä½
+  *         Byte5: [7:0]=è½¬çŸ©ç”µæµä½Ž8ä½ (é€Ÿåº¦å’Œè½¬çŸ©ç”µæµå„12ä½)
+  *
+  *         ç‰¹æ®Šå¤„ç†ï¼š
+  *         - é€Ÿåº¦å€¼ä¹˜ä»¥order_correctionä»¥ä¿®æ­£æ­£æ–¹å‘
+  *         - è½¬çŸ©ç”µæµä¹˜ä»¥HT_TORQUE_CONSTANTå¾—åˆ°å®žé™…è¾“å‡ºè½¬çŸ©
+  *         - ä½¿ç”¨ç§¯åˆ†æ³•ç´¯åŠ é€Ÿåº¦å¾—åˆ°ç”µæœºè§’åº¦å’Œ(motor_angle_sum_vi)
   */
 void static Motor_ReceiveData(Motor_HT_t *motor, uint8_t *rxBuf)
 {
 	Motor_HT_Rx_Info_t* motor_rx_info = motor->rx_info;
+
+	/* è§£æžç¼–ç å™¨å€¼: Byte[1:2]ç»„åˆä¸º16ä½å€¼ */
 	motor_rx_info->encoder = uint_to_float((uint16_t)((rxBuf[1] << 8) | rxBuf[2]), HT_P_MIN, HT_P_MAX, 16);
+
+	/* è§£æžé€Ÿåº¦: Byte[3]é«˜4ä½ + Byte[4]é«˜4ä½ = 12ä½é€Ÿåº¦å€¼ï¼Œä¹˜ä»¥æ–¹å‘ä¿®æ­£ç³»æ•° */
 	motor_rx_info->speed = uint_to_float((uint16_t)((rxBuf[3] << 4) | (rxBuf[4] >> 4)), HT_V_MIN, HT_V_MAX, 12) * motor->born_info->order_correction;
-	motor_rx_info->torque_current = uint_to_float((uint16_t)(((rxBuf[4]&0x0F) << 8) | rxBuf[5]), HT_C_MIN, HT_C_MAX, 12);
+
+	/* è§£æžè½¬çŸ©ç”µæµ: Byte[4]ä½Ž4ä½ + Byte[5] = 12ä½è½¬çŸ©ç”µæµå€¼ */
+	motor_rx_info->torque_current = uint_to_float((uint16_t)(((rxBuf[4] & 0x0F) << 8) | rxBuf[5]), HT_C_MIN, HT_C_MAX, 12);
+
+	/* å°†è½¬çŸ©ç”µæµè½¬æ¢ä¸ºå®žé™…è¾“å‡ºè½¬çŸ©: è½¬çŸ© = è½¬çŸ©ç”µæµ * åŠ›çŸ©å¸¸æ•° */
 	motor_rx_info->torque = motor_rx_info->torque_current * HT_TORQUE_CONSTANT;
+
+	/* å°†ç¼–ç å™¨å€¼è½¬æ¢ä¸ºç”µæœºè§’åº¦ï¼ˆåº¦æ•°ï¼‰ï¼Œå¤„ç†è¿‡é›¶ç‚¹ */
 	Encoder_to_Motor_Angle(motor);
+
+	/* ç§¯åˆ†æ³•ç´¯åŠ é€Ÿåº¦å¾—åˆ°è§’åº¦å’Œï¼ˆé€Ÿåº¦ * æ—¶é—´æ­¥é•¿ï¼‰ */
 	motor_rx_info->motor_angle_sum_vi += motor_rx_info->speed * TIME_STEP;
+
+	/* æ¸…é›¶ç¦»çº¿è®¡æ•°å™¨ */
 	motor->state->offline_cnt = 0;
 }
 
 /**
-  * @brief          µ¥µç»úÐÄÌø°ü
-  * @param[in]      Motor_HT_t *motor    µç»ú±¾Ìå
+  * @brief          å•ç”µæœºå¿ƒè·³åŒ…
+  * @param[in]      Motor_HT_t *motor    ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Motor_Hearbeat(Motor_HT_t *motor)
@@ -168,8 +226,8 @@ void HT_Motor_Hearbeat(Motor_HT_t *motor)
 }
 
 /**
-  * @brief          µ¥µç»ú³õÊ¼»¯
-  * @param[in]      Motor_HT_t *motor     µç»ú±¾Ìå
+  * @brief          å•ç”µæœºåˆå§‹åŒ–
+  * @param[in]      Motor_HT_t *motor     ç”µæœºæœ¬ä½“
   * @retval         none
   */
 void HT_Single_Motor_Init(Motor_HT_t *motor)
@@ -182,17 +240,17 @@ void HT_Single_Motor_Init(Motor_HT_t *motor)
 	motor->single_set_angle  = HT_Single_Motor_Set_Angle;
 	motor->rx = Motor_ReceiveData;
 	motor->single_heart_beat = HT_Motor_Hearbeat;
-	/*¿ªÆôµç»ú¿ØÖÆ*/
+	/*å¼€å¯ç”µæœºæŽ§åˆ¶*/
 	motor->single_sleep(motor);
 	motor->state->offline_cnt_max = 500;
 	motor->rx_info->motor_angle_sum = 0;
 }
 
-/*..........................................¶àµç»ú..........................................*/
+/* ========================================== å¤šç”µæœºæŽ§åˆ¶å‡½æ•° ========================================== */
 
 /**
-  * @brief          ¶àµç»ú£¨1~4¸ö£©µç»ú¿ØÖÆÊä³ö×ª¾Ø,4¸öµç»ú±ØÐëÎªÍ¬Ò»ÀàÐÍ£»º¬ÓÐCAN·¢ËÍ²Ù×÷
-  * @param[in]      Motor_HT_Group_t *group     µç»ú×é
+  * @brief          å¤šç”µæœºï¼ˆ1~4ä¸ªï¼‰ç”µæœºæŽ§åˆ¶è¾“å‡ºè½¬çŸ©,4ä¸ªç”µæœºå¿…é¡»ä¸ºåŒä¸€ç±»åž‹ï¼›å«æœ‰CANå‘é€æ“ä½œ
+  * @param[in]      Motor_HT_Group_t *group     ç”µæœºç»„
   * @retval         none
   */
 static void Group_Motor_Set_Torque(Motor_HT_Group_t *group)
@@ -217,8 +275,8 @@ static void Group_Motor_Set_Torque(Motor_HT_Group_t *group)
 }
 
 /**
-  * @brief          ¶àµç»ú£¨1~4¸ö£©µç»ú¿ØÖÆÐ¶Á¦£»²»º¬ÓÐCAN·¢ËÍ²Ù×÷
-  * @param[in]      Motor_HT_Group_t *group     µç»ú×é
+  * @brief          å¤šç”µæœºï¼ˆ1~4ä¸ªï¼‰ç”µæœºæŽ§åˆ¶å¸åŠ›ï¼›ä¸å«æœ‰CANå‘é€æ“ä½œ
+  * @param[in]      Motor_HT_Group_t *group     ç”µæœºç»„
   * @retval         none
   */
 static void Group_Motor_Sleep(Motor_HT_Group_t *group)
@@ -242,8 +300,8 @@ static void Group_Motor_Sleep(Motor_HT_Group_t *group)
 }
 
 /**
-  * @brief          µç»ú×éÐÄÌø°ü
-  * @param[in]      Motor_HT_Group_t *group     µç»ú×é
+  * @brief          ç”µæœºç»„å¿ƒè·³åŒ…
+  * @param[in]      Motor_HT_Group_t *group     ç”µæœºç»„
   * @retval         none
   */
 static void Group_Motor_Heartbeat(Motor_HT_Group_t *group)
@@ -271,8 +329,8 @@ static void Group_Motor_Heartbeat(Motor_HT_Group_t *group)
 
 
 /**
-  * @brief          µç»ú×é³õÊ¼»¯
-  * @param[in]      Motor_HT_Group_t *group     µç»ú×é
+  * @brief          ç”µæœºç»„åˆå§‹åŒ–
+  * @param[in]      Motor_HT_Group_t *group     ç”µæœºç»„
   * @retval         none
   */
 void HT_Group_Motor_Init(Motor_HT_Group_t *group)
@@ -307,9 +365,9 @@ void HT_Group_Motor_Init(Motor_HT_Group_t *group)
 	  group->group_sleep = Group_Motor_Sleep;
 }
 
-/*..........................................¹¤¾ßº¯Êý..........................................*/
+/* ========================================== å†…éƒ¨å·¥å…·å‡½æ•° ========================================== */
 /**
-  * @brief          ÕûºÏ²¢·¢ËÍµç»úÃüÁî±¨ÎÄ
+  * @brief          æ•´åˆå¹¶å‘é€ç”µæœºå‘½ä»¤æŠ¥æ–‡
   * @param          Motor_HT_t *motor
   * @param[in]      Motor_HT_Command_e Command
   * @retval         none
@@ -334,9 +392,9 @@ static void Motor_Send_Command(Motor_HT_t *motor, Motor_MIT_Command_e Command)
 }
 
 /**
-  * @brief          ¸ù¾Ý½á¹¹ÌåÐÅÏ¢·¢ËÍ±¨ÎÄ
+  * @brief          æ ¹æ®ç»“æž„ä½“ä¿¡æ¯å‘é€æŠ¥æ–‡
   * @param          Motor_HT_t *motor
-  * @param          uint8_t* buf Òª·¢ËÍµÄ±¨ÎÄÐÅÏ¢
+  * @param          uint8_t* buf è¦å‘é€çš„æŠ¥æ–‡ä¿¡æ¯
   * @retval         none
   */
 static void Motor_Send_Data(Motor_HT_t *motor, uint8_t* buf)
@@ -347,7 +405,7 @@ static void Motor_Send_Data(Motor_HT_t *motor, uint8_t* buf)
 }
 
 /**
-  * @brief          ¸ù¾Ý·¢ËÍµÄ±¨ÎÄÐÅÏ¢ÉèÖÃ±¨ÎÄ
+  * @brief          æ ¹æ®å‘é€çš„æŠ¥æ–‡ä¿¡æ¯è®¾ç½®æŠ¥æ–‡
   * @param          Motor_HT_t *motor
   * @retval         none
   */
@@ -357,21 +415,21 @@ static void HT_Motor_SetControlPara(Motor_HT_t *motor)
 	uint16_t p, v, kp, kd, t;
   uint8_t* buf = motor_tx_info->single_tx_buff;
 	
-	/* ÏÞÖÆÊäÈëµÄ²ÎÊýÔÚ¶¨ÒåµÄ·¶Î§ÄÚ */
+	/* é™åˆ¶è¾“å…¥çš„å‚æ•°åœ¨å®šä¹‰çš„èŒƒå›´å†… */
 	motor_tx_info->target_angle = constrain(motor_tx_info->target_angle, HT_P_MIN, HT_P_MAX);
 	motor_tx_info->target_speed = constrain(motor_tx_info->target_speed, HT_V_MIN, HT_V_MAX);
 	motor_tx_info->Kp = constrain(motor_tx_info->Kp, HT_KP_MIN, HT_KP_MAX);
 	motor_tx_info->Kd = constrain(motor_tx_info->Kd, HT_KD_MIN, HT_KD_MAX);
 	motor_tx_info->torque = constrain(motor_tx_info->torque, -8, 8);
 	
-	/* ¸ù¾ÝÐ­Òé£¬¶Ôfloat²ÎÊý½øÐÐ×ª»» */
+	/* æ ¹æ®åè®®ï¼Œå¯¹floatå‚æ•°è¿›è¡Œè½¬æ¢ */
 	p = float_to_uint(motor_tx_info->target_angle,      HT_P_MIN,  HT_P_MAX,  16);            
 	v = float_to_uint(motor_tx_info->target_speed,      HT_V_MIN,  HT_V_MAX,  12);
 	kp = float_to_uint(motor_tx_info->Kp,    HT_KP_MIN, HT_KP_MAX, 12);
 	kd = float_to_uint(motor_tx_info->Kd,    HT_KD_MIN, HT_KD_MAX, 12);
 	t = float_to_uint(motor_tx_info->torque,      HT_T_MIN,  HT_T_MAX,  12);
 	
-	/* ¸ù¾Ý´«ÊäÐ­Òé£¬°ÑÊý¾Ý×ª»»ÎªCANÃüÁîÊý¾Ý×Ö¶Î */
+	/* æ ¹æ®ä¼ è¾“åè®®ï¼ŒæŠŠæ•°æ®è½¬æ¢ä¸ºCANå‘½ä»¤æ•°æ®å­—æ®µ */
 	buf[0] = p>>8;
 	buf[1] = p&0xFF;
 	buf[2] = v>>4;
@@ -383,7 +441,7 @@ static void HT_Motor_SetControlPara(Motor_HT_t *motor)
 }
 
 /**
-  * @brief  ½«float×ªÎªuint£¬²¢¶ÔÕý¸º×ö´¦Àí,ÓëÍ¨ÐÅÐ­Òé±£³ÖÒ»ÖÂ
+  * @brief  å°†floatè½¬ä¸ºuintï¼Œå¹¶å¯¹æ­£è´Ÿåšå¤„ç†,ä¸Žé€šä¿¡åè®®ä¿æŒä¸€è‡´
   * @param
   * @retval 
   */
@@ -396,7 +454,7 @@ static uint16_t float_to_uint(float x, float x_min, float x_max, uint8_t bits)
 }
 
 /**
-  * @brief  ½«uint×ªÎªfloat£¬²¢¶ÔÕý¸º×ö´¦Àí
+  * @brief  å°†uintè½¬ä¸ºfloatï¼Œå¹¶å¯¹æ­£è´Ÿåšå¤„ç†
   * @param
   * @retval 
   */
@@ -409,14 +467,21 @@ static float uint_to_float(uint16_t x_int, float x_min, float x_max, uint8_t bit
 
 
 /**
-  * @brief          ½«±àÂëÆ÷Öµ×ª»¯Îª»¡¶ÈÖÆ(0~2PI)
-  * @param[in]      Motor_Ktech_t *motor     µç»ú±¾Ìå
-  * @retval         none
+  * @brief          å°†ç¼–ç å™¨å€¼è½¬æ¢ä¸ºç”µæœºè§’åº¦(åº¦æ•°)å¹¶ç´¯è®¡è§’åº¦å’Œ
+  * @param[in]      Motor_HT_t *motor: ç”µæœºæœ¬ä½“ç»“æž„ä½“æŒ‡é’ˆ
+  * @retval         æ— 
+  * @note   ç¼–ç å™¨å€¼èŒƒå›´ä¸º[HT_P_MIN, HT_P_MAX]ï¼Œå¯¹åº”ç”µæœºæ—‹è½¬ä¸€åœˆçš„è§’åº¦ã€‚
+  *         æœ¬å‡½æ•°å¤„ç†ä»¥ä¸‹é€»è¾‘ï¼š
+  *         1. è®¡ç®—æœ¬æ¬¡ç¼–ç å™¨å€¼ä¸Žä¸Šæ¬¡çš„å·®å€¼ï¼ˆè€ƒè™‘è¿‡é›¶ç‚¹ä¿®æ­£ï¼‰
+  *         2. è¿‡é›¶ç‚¹å¤„ç†ï¼šå·®å€¼è¶…è¿‡180åº¦æ—¶è¿›è¡Œè¡¥å¿
+  *         3. ç´¯åŠ ç¼–ç å™¨è§’åº¦å·®åˆ°æ€»è§’åº¦å’Œ
+  *         4. å°†æ€»è§’åº¦å’Œè½¬æ¢ä¸º[0, 2*PI]èŒƒå›´å†…çš„è§’åº¦
+  *         5. æ›´æ–°ä¸Šä¸€æ¬¡ç¼–ç å™¨å€¼
   */
 static void Encoder_to_Motor_Angle(Motor_HT_t *motor)
 {
+	/* èŽ·å–æ–¹å‘ä¿®æ­£ç³»æ•° */
 	float order_correction = 0.f;
-	
 	if(motor->born_info->order_correction == 1 || motor->born_info->order_correction == -1)
 	{
 		order_correction = (float)motor->born_info->order_correction;
@@ -425,44 +490,51 @@ static void Encoder_to_Motor_Angle(Motor_HT_t *motor)
 	{
 		order_correction = 1.f;
 	}
-	
-	//¹ý±àÂëÆ÷ÁãµãÅÐ¶Ï
-	if(!motor->rx_info->encoder_last && !motor->rx_info->motor_angle_sum)//ÉÏÒ»½Ç¶ÈÖµÎª0ÇÒ½Ç¶ÈºÍÎªÁãÊ±£¨µç»úÆô¶¯£©£¬²»¼ÆËãÎó²î
+
+	/* ç¼–ç å™¨è¿‡é›¶ç‚¹æ£€æµ‹ä¸Žå·®å€¼è®¡ç®— */
+	/* é¦–æ¬¡å¯åŠ¨ï¼ˆä¸Šæ¬¡ç¼–ç å™¨å€¼å’Œè§’åº¦å’Œå‡ä¸º0ï¼‰æ—¶ä¸è®¡ç®—è¯¯å·® */
+	if(!motor->rx_info->encoder_last && !motor->rx_info->motor_angle_sum)
 	{
 		motor->rx_info->encoder_err = 0.f;
 	}
 	else
 	{
+		/* è®¡ç®—æœ¬æ¬¡ä¸Žä¸Šæ¬¡ç¼–ç å™¨å€¼çš„å·®å€¼ */
 		motor->rx_info->encoder_err = -motor->rx_info->encoder_last + motor->rx_info->encoder;
 	}
-	 
+
+	/* è¿‡é›¶ç‚¹ä¿®æ­£ï¼šç¼–ç å™¨å€¼ä»Žæœ€å¤§è·³åˆ°æœ€å°ï¼ˆæ­£å‘è¿‡é›¶ï¼‰ */
 	if(motor->rx_info->encoder_err > 180.f)
 	{
-		motor->rx_info->encoder_err -= 2*HT_P_MAX;
+		motor->rx_info->encoder_err -= 2 * HT_P_MAX;  /* è¡¥å¿-360åº¦ */
 	}
+	/* è¿‡é›¶ç‚¹ä¿®æ­£ï¼šç¼–ç å™¨å€¼ä»Žæœ€å°è·³åˆ°æœ€å¤§ï¼ˆåå‘è¿‡é›¶ï¼‰ */
 	else if(motor->rx_info->encoder_err < -180.f)
 	{
-		motor->rx_info->encoder_err += 2*HT_P_MAX;
+		motor->rx_info->encoder_err += 2 * HT_P_MAX;  /* è¡¥å¿+360åº¦ */
 	}
-	
+
+	/* ç´¯åŠ è§’åº¦å·®åˆ°æ€»è§’åº¦å’Œ */
 	motor->rx_info->motor_angle_sum += motor->rx_info->encoder_err * order_correction;
-	motor->rx_info->motor_angle = motor->rx_info->motor_angle_sum - (int16_t)(motor->rx_info->motor_angle_sum / (2.f*PI)) * 2.f * PI;
-	
+
+	/* å°†æ€»è§’åº¦å’Œæ˜ å°„åˆ°[0, 2*PI]èŒƒå›´å†… */
+	motor->rx_info->motor_angle = motor->rx_info->motor_angle_sum - (int16_t)(motor->rx_info->motor_angle_sum / (2.f * PI)) * 2.f * PI;
+
+	/* ä¿å­˜æœ¬æ¬¡ç¼–ç å™¨å€¼ï¼Œç”¨äºŽä¸‹æ¬¡è®¡ç®—å·®å€¼ */
 	motor->rx_info->encoder_last = motor->rx_info->encoder;
-	
 }
 
-/*Ê¾Àý´úÂë*/
-/*-------------µç»ú±äÁ¿´´½¨-------------*/
+/*ç¤ºä¾‹ä»£ç */
+/*-------------ç”µæœºå˜é‡åˆ›å»º-------------*/
 /*
 
 Motor_HT_Born_Info_t L_Wheel_Born_Info = 
 {	
-	.stdId = 0x009,//µç»ú¿ØÖÆ±¨ÎÄID
+	.stdId = 0x009,//ç”µæœºæŽ§åˆ¶æŠ¥æ–‡ID
 	
-	.hcan = &hcan2,//Ê¹ÓÃµÄCan×ÜÏß
+	.hcan = &hcan2,//ä½¿ç”¨çš„Canæ€»çº¿
 	
-	.order_correction = 0,//µç»ú×Ü½Ç¶ÈµÄÕý·½ÏòÎªË³Ê±Õë
+	.order_correction = 0,//ç”µæœºæ€»è§’åº¦çš„æ­£æ–¹å‘ä¸ºé¡ºæ—¶é’ˆ
 	
 };
 
@@ -485,18 +557,18 @@ Motor_HT_t L_Wheel =
 	.single_init = &HT_Single_Motor_Init,
 */
 
-/*-------------³õÊ¼»¯-------------*/
+/*-------------åˆå§‹åŒ–-------------*/
 /*
 L_Wheel.single_init(&L_Wheel);
 */
 
-/*-------------½ÓÊÕº¯Êý-------------*/
+/*-------------æŽ¥æ”¶å‡½æ•°-------------*/
 /*
 void CAN2_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 {
 	switch (rxId)
 	{
-		case 0x000://½ÓÊÕID
+		case 0x000://æŽ¥æ”¶ID
 		L_Wheel.rx(&L_Wheel, rxBuf);
 		break;
 		default:
@@ -505,12 +577,12 @@ void CAN2_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 }
 */
 
-/*-------------ÈÎÎñÖ´ÐÐ-------------*/
+/*-------------ä»»åŠ¡æ‰§è¡Œ-------------*/
 /*
   * @file    monitor_task.c
-  * @brief   ¼à¿ØÈÎÎñ
-  *          1. ¸÷Ä£¿éÐÄÌøÊ§Áª¼ì²â
-  *          2. ¼à¿ØÒ£¿ØÆ÷×´Ì¬£¬Èí¼þ¸´Î»
+  * @brief   ç›‘æŽ§ä»»åŠ¡
+  *          1. å„æ¨¡å—å¿ƒè·³å¤±è”æ£€æµ‹
+  *          2. ç›‘æŽ§é¥æŽ§å™¨çŠ¶æ€ï¼Œè½¯ä»¶å¤ä½
 void StartMonitorTask(void const * argument)//
 {
 	
@@ -523,15 +595,15 @@ void StartMonitorTask(void const * argument)//
 }
 
   * @file    monitor_task.c
-  * @brief   µç»ú¿ØÖÆÈÎÎñ
-  *          1. ¸øµç»ú·¢ËÍ¿ØÖÆ±¨ÎÄ
-  *          2. ¶Ô×´Ì¬±êÖ¾Î»½øÐÐÏìÓ¦
+  * @brief   ç”µæœºæŽ§åˆ¶ä»»åŠ¡
+  *          1. ç»™ç”µæœºå‘é€æŽ§åˆ¶æŠ¥æ–‡
+  *          2. å¯¹çŠ¶æ€æ ‡å¿—ä½è¿›è¡Œå“åº”
 void StartMonitorTask(void const * argument)//
 {
 	
 	for(;;)
 	{
-		//·¢ËÍ¿ØÖÆ±¨ÎÄ£¬¿ØÖÆµç»úÊä³öÅ¤¾ØÎª0.5N*m
+		//å‘é€æŽ§åˆ¶æŠ¥æ–‡ï¼ŒæŽ§åˆ¶ç”µæœºè¾“å‡ºæ‰­çŸ©ä¸º0.5N*m
 		L_Wheel.tx_info->torque = 0.5f;
 		L_Wheel.single_set_torque(&L_Wheel);
 		

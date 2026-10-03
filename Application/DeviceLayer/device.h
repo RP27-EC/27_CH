@@ -1,4 +1,4 @@
-#ifndef __DEVICE_H
+﻿#ifndef __DEVICE_H
 #define __DEVICE_H
 
 /* Includes ------------------------------------------------------------------*/

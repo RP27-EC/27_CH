@@ -1,44 +1,94 @@
 /**
   ******************************************************************************
-  * @file           : ave_filter.c\h
-  * @brief          : 
+  * @file           : ave_filter.c
+  * @brief          : 滑动窗口均值滤波算法实现
   * @note           : 2022-1-21 15:10:55
+  ******************************************************************************
+  * @details
+  * 本文件实现了滑动窗口均值滤波（Moving Average Filter）算法。
+  * 滑动窗口均值滤波是一种常用的数字滤波方法，通过对最近 N 次采样值取算术平均，
+  * 来抑制信号中的随机噪声和高频干扰。
+  *
+  * 工作原理：
+  *   维护一个固定长度的环形缓冲区（窗口），每次新数据到来时，
+  *   替换缓冲区中最旧的数据，并重新计算窗口内所有数据的平均值。
+  *   相比简单的全窗口重算，本实现采用"增量更新"策略：
+  *   减去即将被替换的旧值、加上新值，避免遍历整个窗口，效率为 O(1)。
+  *
+  * 适用场景：
+  *   - 传感器数据平滑（如陀螺仪、加速度计、编码器等）
+  *   - 低频信号的噪声抑制
+  *   - 需要实时滤波且延迟要求不高的场合
+  *
+  * 注意事项：
+  *   - 窗口越大，滤波效果越好，但响应延迟也越大
+  *   - 窗口长度改变时会自动重新初始化滤波器
   ******************************************************************************
   */
 
 #include "ave_filter.h"
 #include "string.h"
 
+/**
+ * @brief  初始化均值滤波器结构体
+ * @param  ave_fil: 指向均值滤波器结构体的指针
+ * @retval 无
+ * @note   将滤波器的所有状态清零，包括缓冲区数据、当前均值、索引和窗口长度。
+ *         调用此函数后滤波器处于初始状态，可开始接收新数据。
+ */
 void ave_fil_init(ave_filter_t *ave_fil)
 {
-	memset(ave_fil->value,0,ave_filter_times_max);
+	/* 将缓冲区数组全部清零 */
+	memset(ave_fil->value, 0, ave_filter_times_max);
+	/* 清零当前累计均值 */
 	ave_fil->value_ave = 0;
+	/* 清零环形缓冲区写入索引 */
 	ave_fil->index = 0;
+	/* 清零当前使用的滤波窗口长度 */
 	ave_fil->filter_times = 0;
 }
 
 /**
- * @brief �������ھ�ֵ�˲�
- * @param ֱ�Ӷ����ֵ�˲��ṹ�壬�����ֵ���������鳤��
- * @result ��ֵ
+ * @brief  滑动窗口均值滤波更新函数
+ * @param  ave_fil: 指向均值滤波器结构体的指针
+ * @param  value:   本次新输入的采样值
+ * @param  max:     滑动窗口的最大长度（即参与平均的数据个数）
+ * @retval float    返回当前滤波后的均值
+ * @note   每次调用时传入一个新的采样值，函数内部会自动维护环形缓冲区，
+ *         并以增量方式更新均值，最后返回滤波结果。
+ *         若传入的 max 超过数组最大容量，则自动截断为上限值。
+ *         若窗口长度发生变化，滤波器会自动重新初始化。
  */
- 
 float ave_fil_update(ave_filter_t *ave_fil, float value, uint16_t max)
 {
-	if(max > ave_filter_times_max)
+	/* 限制窗口长度不超过缓冲区数组的最大容量 */
+	if (max > ave_filter_times_max)
 	{
 		max = ave_filter_times_max;
 	}
-	if(max != ave_fil->filter_times)
+
+	/* 如果窗口长度与上次不同，说明需要重新初始化滤波器 */
+	if (max != ave_fil->filter_times)
 	{
-		ave_fil_init(ave_fil);
-		ave_fil->filter_times = max;
+		ave_fil_init(ave_fil);           /* 重置滤波器所有状态 */
+		ave_fil->filter_times = max;     /* 记录新的窗口长度 */
 	}
-	ave_fil->value_ave -= ave_fil->value[ave_fil->index] / (float)max;
-	ave_fil->value[ave_fil->index] = value;
-	ave_fil->value_ave += ave_fil->value[ave_fil->index] / (float)max;
+
+	/*
+	 * 增量更新均值的核心算法：
+	 *   1. 从当前均值中减去即将被覆盖的旧值（除以窗口长度）
+	 *   2. 将新值写入缓冲区对应位置
+	 *   3. 将新值加入当前均值（除以窗口长度）
+	 *   这样避免了遍历整个窗口重新求和，时间复杂度为 O(1)
+	 */
+	ave_fil->value_ave -= ave_fil->value[ave_fil->index] / (float)max;  /* 减去旧值的贡献 */
+	ave_fil->value[ave_fil->index] = value;                             /* 用新值替换旧值 */
+	ave_fil->value_ave += ave_fil->value[ave_fil->index] / (float)max;  /* 加上新值的贡献 */
+
+	/* 环形缓冲区索引递增，到达末尾后回到开头 */
 	ave_fil->index++;
-	ave_fil->index %= max;
-	
+	ave_fil->index %= max;  /* 取模实现环形索引 */
+
+	/* 返回当前窗口的均值 */
 	return ave_fil->value_ave;
 }

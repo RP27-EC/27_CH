@@ -21,7 +21,8 @@ typedef struct pid_ctrl {
 	float 	out_max;
 
 } pid_ctrl_t;
-void integral_to_zero(pid_ctrl_t *pid);
 void single_pid_ctrl(pid_ctrl_t *pid);
+void pid_clear(pid_ctrl_t *pid);
+void pid_err_cal(pid_ctrl_t *pid);
 
 #endif

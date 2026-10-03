@@ -1,4 +1,4 @@
-#ifndef STRUCT_TYPEDEF_H
+﻿#ifndef STRUCT_TYPEDEF_H
 #define STRUCT_TYPEDEF_H
 
 

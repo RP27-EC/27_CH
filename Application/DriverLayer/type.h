@@ -1,4 +1,4 @@
-/* Copyright (C) ARM Ltd., 1999,2014 */
+﻿/* Copyright (C) ARM Ltd., 1999,2014 */
 /* All rights reserved */
 
 /*

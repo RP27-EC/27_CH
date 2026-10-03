@@ -1,3 +1,17 @@
+﻿/**
+  ******************************************************************************
+  * @file    drv_spi.c
+  * @brief   SPI总线底层驱动 - 提供SPI外设初始化功能
+  *          本文件实现了SPI接口的初始化配置，主要用于连接BMI088/680等IMU传感器。
+  *          SPI通信采用主模式(Master)，通过CS片选信号选择从设备。
+  ******************************************************************************
+  * @attention
+  *   - SPI2通常用于板载BMI088惯性测量单元(IMU)的通信
+  *   - CS引脚用于片选，拉低选中设备，拉高释放设备
+  *   - SPI1预留用于外部扩展IMU（当前已注释）
+  ******************************************************************************
+  */
+
 /* Includes ------------------------------------------------------------------*/
 #include "drv_spi.h"
 
@@ -9,16 +23,39 @@
 
 /* Private functions ---------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
+
+/**
+  * @brief  SPI2初始化 - 初始化SPI2外设并拉低BMI的CS引脚以选中传感器
+  * @param  无
+  * @retval 无
+  * @note   执行流程：
+  *         1. 调用HAL库初始化SPI2外设（配置时钟极性、相位、数据宽度等）
+  *         2. 拉低BMI传感器的CS引脚，选中该SPI从设备
+  *         3. 延时1ms等待传感器就绪
+  *         注：CS引脚保持拉低意味着SPI总线始终选中该传感器
+  */
 void SPI2_Init(void)
 {
-	HAL_SPI_Init(&hspi2);
+	HAL_SPI_Init(&hspi2);  /* 初始化SPI2外设（由CubeMX生成的配置） */
+
+	/* 拉低BMI传感器的CS引脚，选中该SPI从设备 */
+	/* GPIO_PIN_RESET = 低电平 = 选中设备 */
 	HAL_GPIO_WritePin(BMI_CS_GPIO_Port, BMI_CS_Pin, GPIO_PIN_RESET);
-	HAL_Delay(1);
+
+	HAL_Delay(1);  /* 延时1ms，等待传感器初始化完成 */
 }
 
+/**
+  * @brief  SPI1初始化（已注释，预留用于外部扩展BMI传感器）
+  * @param  无
+  * @retval 无
+  * @note   当前未使用，如需外部IMU可取消注释
+  *         与SPI2不同的是，CS引脚初始为高电平(未选中状态)
+  */
 //void SPI1_Init(void)
 //{
-//	HAL_SPI_Init(&hspi1);
+//	HAL_SPI_Init(&hspi1);  /* 初始化SPI1外设 */
+//	/* 拉高外部BMI传感器的CS引脚，初始不选中该设备 */
 //	HAL_GPIO_WritePin(EX_BMI_CS_GPIO_Port, EX_BMI_CS_Pin, GPIO_PIN_SET);
 //	HAL_Delay(1);
 //}

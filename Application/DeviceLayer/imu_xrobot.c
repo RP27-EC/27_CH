@@ -15,7 +15,7 @@
  *
  * ==== 使用流程 ====
  *
- * 1. main.c 中已调用 DEVICE_Init() → IMU_UART_Init()，完成初始化。
+ * 1. main.c 中已调用 DEVICE_Init() -> IMU_UART_Init()，完成初始化。
  * 2. 数据自动在 USART1 空闲中断中接收、校验、解析。
  * 3. 直接读取 imu_data 全局变量即可获得最新数据。
  *    见 imu_xrobot.h 中的示例代码。
@@ -33,24 +33,41 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "imu_xrobot.h"
-#include "string.h"
-#include "usart.h"
-#include "drv_uart.h"
+#include "imu_xrobot.h"    /* IMU UART 协议头文件，包含数据结构定义 */
+#include "string.h"         /* 字符串操作函数（memcpy 等） */
+#include "usart.h"          /* UART 外设句柄定义 */
+#include "drv_uart.h"       /* UART 驱动层，包含 DMA 句柄和缓冲区长度定义 */
 
 /* Exported variables --------------------------------------------------------*/
+/**
+ * @brief 全局 IMU 数据结构体
+ * 通过 UART 接收并解析后的 IMU 数据存储在此全局变量中，
+ * 其他模块可直接读取该变量获取 IMU 数据
+ */
 ImuUartData imu_data;
 
 /* Private variables ---------------------------------------------------------*/
+/**
+ * @brief 数据结构体大小检查变量
+ * 用于在运行时验证 ImuUartData 结构体大小是否与预期一致
+ */
 volatile uint16_t size_check;
 
 /* Private constants ---------------------------------------------------------*/
+/** @brief IMU 一帧数据的字节长度，包含帧头、数据和校验 */
 #define IMU_FRAME_SIZE  64
+
+/** @brief IMU 数据帧帧头标识，固定为 0xA5 */
 #define IMU_FRAME_HEAD  0xA5
-#define RAD_TO_DEG      57.29578f   /* 弧度转度 (180/π) */
+
+/** @brief 弧度转角度的转换系数 (180 / pi = 57.29578) */
+#define RAD_TO_DEG      57.29578f
 
 /**
- * @brief CRC8 查表 
+ * @brief CRC8 查表法使用的查找表
+ * 多项式: 0x31
+ * 初始值: 0xFF
+ * 该表用于加速 CRC8 校验计算，避免逐位计算的开销
  */
 static const uint8_t CRC8_TAB[256] = {
     0x00, 0x5e, 0xbc, 0xe2, 0x61, 0x3f, 0xdd, 0x83,
@@ -93,12 +110,16 @@ static const uint8_t CRC8_TAB[256] = {
 /**
  * @brief  CRC8 校验计算 (多项式 0x31, 初始值 0xFF)
  * @param  data  待校验数据指针
- * @param  len   数据长度
- * @return CRC8 校验值
+ * @param  len   数据长度（字节数）
+ * @return CRC8 校验值（8位无符号整数）
+ *
+ * @note   使用查表法实现，效率高于逐位计算
+ *         校验算法：初始 CRC = 0xFF，每次取 CRC 高4位与数据异或查表
  */
 uint8_t CRC8_Calc(uint8_t *data, uint16_t len) {
-    uint8_t crc = 0xff;  /* 初始值 0xFF */
+    uint8_t crc = 0xff;  /* CRC 初始值 0xFF */
     for (uint16_t i = 0; i < len; i++) {
+        /* 当前 CRC 与数据字节异或，取低8位作为查表索引 */
         crc = CRC8_TAB[crc ^ data[i]];
     }
     return crc;
@@ -106,36 +127,43 @@ uint8_t CRC8_Calc(uint8_t *data, uint16_t len) {
 
 /**
  * @brief  IMU UART 初始化，清空数据缓存
- * @note   在 DEVICE_Init() 中被调用
+ * @note   在 DEVICE_Init() 中被调用，完成 IMU UART 模块的初始化
+ *         主要工作：清零 imu_data 结构体，确保初始状态干净
  */
 void IMU_UART_Init(void)
 {
-    size_check = sizeof(ImuUartData);
-    memset(&imu_data, 0, sizeof(ImuUartData));
+    size_check = sizeof(ImuUartData);  /* 记录结构体大小，用于后续校验 */
+    memset(&imu_data, 0, sizeof(ImuUartData));  /* 清零全局数据结构 */
 }
 
 /* USART1 数据接收处理 --------------------------------------------------------*/
 
 /**
- * @brief  USART1 空闲中断数据处理器 
+ * @brief  USART1 空闲中断数据处理器
  * @note   在 USART1 空闲中断中被 DRV_UART_IRQHandler() 调用
- *         将欧拉角从弧度转换为度
+ *         负责从 DMA 接收缓冲区中解析 IMU 数据帧
+ *         解析流程：查找帧头 -> 校验 CRC -> 存储数据 -> 弧度转角度
  *
  * @param  rxBuf  DMA 接收缓冲区指针
+ *
+ * @note   该函数在中断上下文中执行，需保证执行效率
+ *         数据帧格式：[帧头0xA5][63字节数据+CRC8]
  */
 void USART1_rxDataHandler(uint8_t *rxBuf)
 {
+    /* 计算实际接收到的数据长度 = 缓冲区总长 - DMA剩余计数 */
     uint16_t rx_len = USART1_RX_BUF_LEN - hdma_usart1_rx.Instance->NDTR;
     uint16_t i = 0;
 
     while (i < rx_len)
     {
-        /* 查找帧头 0xA5 */
+        /* 步骤1：在缓冲区中查找帧头 0xA5 */
         while (i < rx_len && rxBuf[i] != IMU_FRAME_HEAD)
         {
             i++;
         }
 
+        /* 如果没有找到帧头，或者剩余数据不足以组成一帧，则退出 */
         if (i >= rx_len)
         {
             break;
@@ -145,22 +173,27 @@ void USART1_rxDataHandler(uint8_t *rxBuf)
             break;
         }
 
+        /* 步骤2：将一帧数据拷贝到临时缓冲区进行处理 */
         uint8_t parse_buf[IMU_FRAME_SIZE];
         memcpy(parse_buf, &rxBuf[i], IMU_FRAME_SIZE);
 
+        /* 步骤3：CRC8 校验 - 计算前63字节的CRC，与最后一字节比较 */
         uint8_t calc_crc = CRC8_Calc(parse_buf, IMU_FRAME_SIZE - 1);
         uint8_t recv_crc = parse_buf[IMU_FRAME_SIZE - 1];
 
+        /* 步骤4：校验通过则解析数据到全局结构体 */
         if (calc_crc == recv_crc)
         {
+            /* 将整帧数据拷贝到全局数据结构体 */
             memcpy(&imu_data, parse_buf, sizeof(ImuUartData));
 
-            /* 欧拉角弧度转度 */
+            /* 欧拉角弧度转度：IMU内部输出为弧度，转换为角度制方便后续使用 */
             imu_data.eulr_.yaw *= RAD_TO_DEG;
             imu_data.eulr_.pit *= RAD_TO_DEG;
             imu_data.eulr_.rol *= RAD_TO_DEG;
         }
 
+        /* 跳过当前帧，继续处理下一帧（支持一帧中包含多个数据帧） */
         i += IMU_FRAME_SIZE;
     }
 }
