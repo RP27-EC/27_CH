@@ -35,7 +35,7 @@ HAL_StatusTypeDef Board_Comm_Send_State(void)
 {
     uint8_t tx_buf[8] = {0};
     tx_buf[0] = board_tx_info.fric_state;
-    /* tx_buf[1..7] 预留给后续自瞄等状态 */
+    /* tx_buf[1..7] 预留给后续扩展 */
     return CAN_SendData(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf);
 }
 
