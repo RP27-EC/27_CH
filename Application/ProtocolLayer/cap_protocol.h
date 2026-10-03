@@ -1,17 +1,17 @@
-#ifndef __CAP_PROTOCOL_H
+ï»¿#ifndef __CAP_PROTOCOL_H
 #define __CAP_PROTOCOL_H
 
 #include "main.h"
 typedef struct __attribute__((packed)) cap_rx_info_struct {
     
-    int16_t now_chassis_power;              // µ±Ç°µ×ÅÌÏûºÄ¹¦ÂÊ
-    int16_t now_cap_V;                      // µ±Ç°µçÈİ×éµçÑ¹
-    int16_t now_cap_I;                      // µ±Ç°µçÈİ×éµçÁ÷
+    int16_t now_chassis_power;              // å½“å‰åº•ç›˜æ¶ˆè€—åŠŸç‡
+    int16_t now_cap_V;                      // å½“å‰ç”µå®¹ç»„ç”µå‹
+    int16_t now_cap_I;                      // å½“å‰ç”µå®¹ç»„ç”µæµ
     
     struct __attribute__((packed)) bit_state_struct
     {
-        uint8_t ability             : 1;    // µçÈİÊÇ·ñÓĞ·ÅµçÄÜÁ¦£¬0ÎªÎŞ£¬1ÎªÓĞ
-        uint8_t unuse               : 7;    // ÔİÊ±Î´Ê¹ÓÃ
+        uint8_t ability             : 1;    // ç”µå®¹æ˜¯å¦æœ‰æ”¾ç”µèƒ½åŠ›ï¼Œ0ä¸ºæ— ï¼Œ1ä¸ºæœ‰
+        uint8_t unuse               : 7;    // æš‚æ—¶æœªä½¿ç”¨
     }bit_state;
     
 } cap_rx_info_t;
@@ -19,24 +19,24 @@ typedef struct __attribute__((packed)) cap_rx_info_struct {
 typedef struct
 {
 		int16_t chassis_power;
-    float cap_Ucr;    //µçÈİÁ½¶ËµçÑ¹Ucr£¬0~30V
-    float cap_I;    //µçÈİµçÁ÷I£¬-20~20A
+    float cap_Ucr;    //ç”µå®¹ä¸¤ç«¯ç”µå‹Ucrï¼Œ0~30V
+    float cap_I;    //ç”µå®¹ç”µæµIï¼Œ-20~20A
     
-		uint8_t ability;// µçÈİÊÇ·ñÓĞ·ÅµçÄÜÁ¦£¬0ÎªÎŞ£¬1ÎªÓĞ
+		uint8_t ability;// ç”µå®¹æ˜¯å¦æœ‰æ”¾ç”µèƒ½åŠ›ï¼Œ0ä¸ºæ— ï¼Œ1ä¸ºæœ‰
 }cap_receive_data_t;
 
 typedef struct __attribute__((packed))cap_transmit_data_struct {
     
-    uint8_t  chassis_power_buffer;          // µ×ÅÌÄÜÁ¿»º³å
-    uint16_t chassis_power_limit ;          // »úÆ÷ÈËµ×ÅÌ¹¦ÂÊÏŞÖÆÉÏÏŞ
-    int16_t  cap_power_out_limit ;          // µçÈİ·Åµç¹¦ÂÊÏŞÖÆ£¬¶¨ÒåÎª¸ºÖµ
-    uint16_t cap_power_in_limit  ;          // µçÈİ³äµç¹¦ÂÊÏŞÖÆ£¬¶¨ÒåÎªÕıÖµ
+    uint8_t  chassis_power_buffer;          // åº•ç›˜èƒ½é‡ç¼“å†²
+    uint16_t chassis_power_limit ;          // æœºå™¨äººåº•ç›˜åŠŸç‡é™åˆ¶ä¸Šé™
+    int16_t  cap_power_out_limit ;          // ç”µå®¹æ”¾ç”µåŠŸç‡é™åˆ¶ï¼Œå®šä¹‰ä¸ºè´Ÿå€¼
+    uint16_t cap_power_in_limit  ;          // ç”µå®¹å……ç”µåŠŸç‡é™åˆ¶ï¼Œå®šä¹‰ä¸ºæ­£å€¼
     
     struct __attribute__((packed)) bit_control_struct
     {
-        uint8_t cap_switch : 1;             // µçÈİ¿ª¹Ø£¬1Îª¿ª£¬0Îª¹Ø
-        uint8_t turbo_mode : 1;             // ÊÇ·ñÊ¹ÓÃ»º³åÄÜÁ¿À´³äµç£¬0Îª²»ÓÃ£¬1ÎªÓÃ
-        uint8_t unuse      : 6;             // ÔİÊ±Î´Ê¹ÓÃ
+        uint8_t cap_switch : 1;             // ç”µå®¹å¼€å…³ï¼Œ1ä¸ºå¼€ï¼Œ0ä¸ºå…³
+        uint8_t turbo_mode : 1;             // æ˜¯å¦ä½¿ç”¨ç¼“å†²èƒ½é‡æ¥å……ç”µï¼Œ0ä¸ºä¸ç”¨ï¼Œ1ä¸ºç”¨
+        uint8_t unuse      : 6;             // æš‚æ—¶æœªä½¿ç”¨
     }bit_control;
     
 }cap_transmit_data_t;

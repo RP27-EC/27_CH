@@ -1,7 +1,7 @@
-/**
+ï»¿/**
   ******************************************************************************
   * @file    BRT_code.h
-  * @brief   BRTµ¥È¦¾ø¶ÔÖµ±àÂëÆ÷Çı¶¯
+  * @brief   BRTå•åœˆç»å¯¹å€¼ç¼–ç å™¨é©±åŠ¨
   ******************************************************************************
   * @attention
   * 
@@ -16,29 +16,29 @@
 #include "drv_can.h"
 
 /* Exported typedef ----------------------------------------------------------*/
-/*±àÂëÆ÷Ö¸Áî¼¯*/
+/*ç¼–ç å™¨æŒ‡ä»¤é›†*/
 typedef enum Code_BRT_Command
 {
-	Read_encoder = 0x01,//¶ÁÈ¡±àÂëÆ÷Öµ
-	Set_Id,//ÉèÖÃ±àÂëÆ÷ID
-	Set_Baud,//ÉèÖÃCANÍ¨ĞÅ²¨ÌØÂÊ
-	Set_Code_Mode,//ÉèÖÃ±àÂëÆ÷Ä£Ê½
-	Set_Receive_Time,//ÉèÖÃ»Ø´«Ê±¼ä
-	Set_Zero_Pole,//ÉèÖÃÁãµã
-	Set_Dire,//ÉèÖÃ·½Ïò
-	Read_sum_encoder,//¶ÁÈ¡¶àÈ¦Öµ
-	Read_Turn,//¶ÁÈ¡ĞéÄâÈ¦Êı
-	Read_speed,//¶ÁÈ¡±àÂëÆ÷½ÇËÙ¶ÈÖµ
-	Set_Sample_Time,//ÉèÖÃ²ÉÑùÊ±¼ä
-	Set_Mid_Pole,//ÉèÖÃÖĞµã
-	Set_Num_Pole,//ÉèÖÃµ±Ç°Î»ÖÃÖµ
+	Read_encoder = 0x01,//è¯»å–ç¼–ç å™¨å€¼
+	Set_Id,//è®¾ç½®ç¼–ç å™¨ID
+	Set_Baud,//è®¾ç½®CANé€šä¿¡æ³¢ç‰¹ç‡
+	Set_Code_Mode,//è®¾ç½®ç¼–ç å™¨æ¨¡å¼
+	Set_Receive_Time,//è®¾ç½®å›ä¼ æ—¶é—´
+	Set_Zero_Pole,//è®¾ç½®é›¶ç‚¹
+	Set_Dire,//è®¾ç½®æ–¹å‘
+	Read_sum_encoder,//è¯»å–å¤šåœˆå€¼
+	Read_Turn,//è¯»å–è™šæ‹Ÿåœˆæ•°
+	Read_speed,//è¯»å–ç¼–ç å™¨è§’é€Ÿåº¦å€¼
+	Set_Sample_Time,//è®¾ç½®é‡‡æ ·æ—¶é—´
+	Set_Mid_Pole,//è®¾ç½®ä¸­ç‚¹
+	Set_Num_Pole,//è®¾ç½®å½“å‰ä½ç½®å€¼
 	BRT_Command_Num,
 }Code_BRT_Command_e;
 
 
 typedef struct Code_BRT_Born_Info_struct_t
 {
-		uint32_t stdId;//±êÊ¶ID
+		uint32_t stdId;//æ ‡è¯†ID
 	
     FDCAN_HandleTypeDef *hcan;
 }Code_BRT_Born_Info_t;
@@ -67,7 +67,7 @@ typedef struct Code_BRT_Rx_Info_struct_t
 
 typedef struct Code_BRT_Tx_Info_struct_t
 {
-	uint8_t command_flag[BRT_Command_Num];//0:Î´·¢ËÍÖ¸Áî  1£ºÖ¸ÁîÒÑ·¢ËÍ  2£ºÖ¸Áî³É¹¦½ÓÊÕ  3£ºÖ¸Áî½ÓÊÕÊ§°Ü
+	uint8_t command_flag[BRT_Command_Num];//0:æœªå‘é€æŒ‡ä»¤  1ï¼šæŒ‡ä»¤å·²å‘é€  2ï¼šæŒ‡ä»¤æˆåŠŸæ¥æ”¶  3ï¼šæŒ‡ä»¤æ¥æ”¶å¤±è´¥
 	
 	uint8_t tx_buff[8];
 	

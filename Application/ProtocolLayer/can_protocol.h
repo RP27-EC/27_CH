@@ -20,6 +20,7 @@
 /* Exported macro ------------------------------------------------------------*/
 /* 板间通信 CAN ID（下层板与上层 C 板） */
 #define SLAVE_RX_ID                  (0x021)    /* 接收上层 C 板发来的数据 (yaw_imu, yaw_v) */
+#define SLAVE_RX_STATE_ID            (0x023)    /* 接收上层 C 板状态帧 (摩擦轮就绪等) */
 #define SLAVE_TX_ID                  (0x022)    /* 发送给上层 C 板的数据 (整车状态, pitch目标等) */
 
 /* CAN1 电机 ID (底盘 M3508 与 KT9025) */
@@ -27,6 +28,9 @@
 #define CHASSIS_CAN_ID_RF            (0x202)
 #define CHASSIS_CAN_ID_LB            (0x203)
 #define CHASSIS_CAN_ID_RB            (0x204)
+
+/* CAN2 拨弹 RM3508 反馈 ID（电调 ID=5） */
+#define SHOOT_MOTOR_CAN_ID           (0x205)
 
 /* Exported functions --------------------------------------------------------*/
 void CAN1_rxDataHandler(uint32_t canId, uint8_t *rxBuf);

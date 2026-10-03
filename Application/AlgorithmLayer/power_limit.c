@@ -1,40 +1,113 @@
-#include "Power_Limit.h"
+/**
+  ******************************************************************************
+  * @file           : power_limit.c
+  * @brief          : 底盘功率限制模块
+  * @details        : 根据裁判系统反馈的功率缓冲数据，动态限制底盘电机的输出功率，
+  *                   防止超出裁判系统的功率限制导致断电。
+  *
+  *                   功率限制原理：
+  *                   RoboMaster裁判系统规定机器人底盘的最大功率（如80W或120W），
+  *                   并提供一个功率缓冲区（buffer），最大60J。当实际功率低于限制时，
+  *                   缓冲区累积能量；当实际功率超过限制时，缓冲区消耗能量。如果缓冲区
+  *                   耗尽，裁判系统将强制断电。
+  *
+  *                   分段功率限制策略：
+  *                   - buffer > 60J: 不限制（防止飞坡后缓冲过大导致瞬时功率过高）
+  *                   - 25J < buffer <= 60J: 线性限制（按buffer/60比例限制）
+  *                   - buffer <= 25J: 二次方限制（更严格的限制，保护缓冲区）
+  *
+  * @note           :
+  *                  - 需要裁判系统模块提供实时功率缓冲数据
+  *                  - 电机输出电流会被就地修改，调用前应保存原始值
+  *                  - CHAS_SP_MAX_OUT定义在Power_Limit.h中，表示单电机最大输出
+  ******************************************************************************
+  */
 
+/* 包含头文件 ------------------------------------------------------------------*/
+#include "Power_Limit.h"  /* 功率限制头文件，包含宏定义和接口声明 */
 
-/*-�洫����-*/
+/**
+  * @brief  底盘电机功率限制函数
+  * @details 根据裁判系统的功率缓冲数据，动态调整四个电机的输出功率。
+  *
+  *          算法流程：
+  *          1. 获取当前功率缓冲区值（buffer），限制最大60J
+  *          2. 计算缓冲区比例系数：Limit_k = buffer / 60
+  *          3. 根据buffer大小采用不同的限制策略：
+  *             - buffer < 25J: Limit_k = Limit_k^2（平方关系，更严格）
+  *             - buffer >= 25J: Limit_k = Limit_k（线性关系）
+  *          4. 计算允许的最大总输出 = Limit_k * 单电机最大输出 * 4
+  *          5. 计算当前四个电机的实际总输出（绝对值之和）
+  *          6. 如果实际总输出超过允许值，按比例缩小所有电机的输出
+  *
+  * @param  data: 指向四个电机力矩电流数组的指针
+  *               数组顺序：[0]=前左, [1]=前右, [2]=后左, [3]=后右
+  *               该数组会被就地修改（限制后的值覆盖原始值）
+  * @retval None
+  */
 void Chassis_Motor_Power_Limit(int16_t *data)
 {
-	float buffer = judge.info->power_heat_data.chassis_power_buffer;
-	float heat_rate, Limit_k, CHAS_LimitOutput, CHAS_TotalOutput;
-	
-	float OUT_MAX = 0.f;
-	
-	OUT_MAX = CHAS_SP_MAX_OUT * 4.f;
-	
-	if(buffer > 60.f)buffer = 60.f;//��ֹ����֮�󻺳�250J��Ϊ������ϵ��
-	
-	Limit_k = buffer / 60.f;
-	
-	if(buffer < 25.f)
-		Limit_k = Limit_k * Limit_k ;// * Limit_k; //3��
-	else
-		Limit_k = Limit_k;// * str->Limit_k; //ƽ��
-	
-	if(buffer < 60.f)
-		CHAS_LimitOutput = Limit_k * OUT_MAX;
-	else 
-		CHAS_LimitOutput = OUT_MAX;    
-	
-	CHAS_TotalOutput = abs(data[0]) + abs(data[1]) + abs(data[2]) + abs(data[3]) ;
-	
-	heat_rate = CHAS_LimitOutput / CHAS_TotalOutput;
-	
-  if(CHAS_TotalOutput >= CHAS_LimitOutput)
-  {
-		for(char i = 0 ; i < 4 ; i++)
-		{	
-			data[i] = (int16_t)(data[i] * heat_rate);	
-		}
-	}
-}
+    /* 从裁判系统获取当前功率缓冲区值（单位：焦耳J） */
+    float buffer = judge.info->power_heat_data.chassis_power_buffer;
 
+    float heat_rate;           /* 功率限制系数，用于按比例缩小电机输出 */
+    float Limit_k;             /* 缓冲区限制系数，范围[0, 1] */
+    float CHAS_LimitOutput;    /* 允许的最大总输出电流 */
+    float CHAS_TotalOutput;    /* 当前实际总输出电流（绝对值之和） */
+    float OUT_MAX = 0.f;       /* 无限制时的最大总输出电流 */
+
+    /* 计算无限制时的最大总输出：单电机最大输出 * 4个电机 */
+    OUT_MAX = CHAS_SP_MAX_OUT * 4.f;
+
+    /* 防止飞坡后缓冲过大：将buffer限制在60J以内
+     * 飞坡时电机短暂失去负载，缓冲区可能快速累积 */
+    if(buffer > 60.f) buffer = 60.f;
+
+    /* 计算缓冲区比例系数：buffer/60，范围[0, 1]
+     * buffer越大，可用功率越多 */
+    Limit_k = buffer / 60.f;
+
+    /*==========================================================================
+     * 分段功率限制策略
+     * - buffer < 25J: 使用平方关系限制（更严格的限制）
+     *   原因：缓冲区较小时，需要更积极地降低功率以保护缓冲区
+     * - buffer >= 25J: 使用线性关系限制（按比例限制）
+     *   原因：缓冲区充足时，可以较宽松地分配功率
+     *==========================================================================*/
+    if(buffer < 25.f)
+        Limit_k = Limit_k * Limit_k;  /* 平方关系：缓冲越小，限制越严格 */
+    else
+        Limit_k = Limit_k;            /* 线性关系：按比例限制 */
+
+    /*==========================================================================
+     * 计算允许的最大总输出
+     * - buffer < 60J: 按限制系数缩放
+     * - buffer >= 60J: 不限制（但前面已将buffer限制在60J以内）
+     *==========================================================================*/
+    if(buffer < 60.f)
+        CHAS_LimitOutput = Limit_k * OUT_MAX;  /* 应用限制系数 */
+    else
+        CHAS_LimitOutput = OUT_MAX;            /* 不限制 */
+
+    /* 计算当前四个电机的实际总输出（绝对值之和）
+     * 使用绝对值是因为电机可能正反转 */
+    CHAS_TotalOutput = abs(data[0]) + abs(data[1]) + abs(data[2]) + abs(data[3]);
+
+    /*==========================================================================
+     * 功率限制处理
+     * 如果实际总输出超过允许的最大值，按比例缩小所有电机的输出
+     * 这样可以保持各电机的输出比例不变，只降低整体幅度
+     *==========================================================================*/
+    if(CHAS_TotalOutput >= CHAS_LimitOutput)
+    {
+        /* 计算限制系数：允许输出 / 实际输出，范围(0, 1]
+         * 该系数将用于等比例缩小所有电机的输出 */
+        heat_rate = CHAS_LimitOutput / CHAS_TotalOutput;
+
+        /* 按比例缩小所有电机的输出 */
+        for(char i = 0 ; i < 4 ; i++)
+        {
+            data[i] = (int16_t)(data[i] * heat_rate);
+        }
+    }
+}

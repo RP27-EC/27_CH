@@ -1,85 +1,159 @@
 /**
- * @file        rp_math.c
- * @author      RobotPilots
- * @Version     v1.1
- * @brief       RobotPilots Robots' Math Libaray.
- * @update
- *              v1.0(11-September-2020)
- *              v1.1(13-November-2021)
- *                  1.����λ��������
- */
- 
-/* Includes ------------------------------------------------------------------*/
-#include "rp_math.h"
+  ******************************************************************************
+  * @file        : rp_math.c
+  * @author      : RobotPilots
+  * @Version     : v1.1
+  * @brief       : RobotPilots机器人数学运算库
+  * @details     : 提供机器人控制中常用的数学运算函数，包括：
+  *                - 低通滤波函数：用于信号平滑处理
+  *                - 斜坡函数（整数版和浮点版）：用于平滑过渡，防止突变
+  *                - 死区函数：消除小信号抖动
+  *
+  * @update      :
+  *              v1.0 (11-September-2020) 初始版本
+  *              v1.1 (13-November-2021) 增加位操作函数（在头文件中以宏定义形式提供）
+  ******************************************************************************
+  */
 
-/* Private macro -------------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
-/* Private typedef -----------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* Exported variables --------------------------------------------------------*/
-/* Private functions ---------------------------------------------------------*/
-/* Exported functions --------------------------------------------------------*/
+/* 包含头文件 ------------------------------------------------------------------*/
+#include "rp_math.h"  /* 数学运算库头文件，包含宏定义和函数声明 */
+
+/* 私有宏定义 ------------------------------------------------------------------*/
+
+/* 私有函数原型 ----------------------------------------------------------------*/
+
+/* 私有类型定义 ----------------------------------------------------------------*/
+
+/* 私有变量 --------------------------------------------------------------------*/
+
+/* 导出变量 --------------------------------------------------------------------*/
+
+/* 私有函数 --------------------------------------------------------------------*/
+
+/* 导出函数 --------------------------------------------------------------------*/
 
 /**
-  * @brief  ��ͨ�˲�
-  * @param  
-  * @retval 
+  * @brief  一阶低通滤波函数
+  * @details 实现一阶IIR低通滤波器，对输入信号进行平滑处理
+  *          计算公式：output = last_output + K * (new_input - last_output)
+  *          等价于：  output = (1-K) * last_output + K * new_input
+  *
+  *          滤波特性：
+  *          - K值越接近0，滤波效果越强，响应越慢
+  *          - K值越接近1，滤波效果越弱，响应越快
+  *          - 适用于传感器数据去噪、信号平滑等场景
+  *
+  * @param  X_last: 上一次的滤波输出值（历史值）
+  * @param  X_new:  当前的输入值（新采样值）
+  * @param  K:      滤波系数，范围(0, 1)
+  *                 K越大响应越快但滤波效果越弱
+  *                 K越小滤波效果越好但响应越慢
+  * @retval float:  滤波后的输出值
   */
 float Lowpass(float X_last, float X_new, float K)
 {
-	return (X_last + (X_new - X_last) * K);
+    /* 一阶低通滤波：在历史值和新值之间按K系数进行加权 */
+    return (X_last + (X_new - X_last) * K);
 }
 
 
+/**
+  * @brief  整数斜坡函数（平滑过渡函数）
+  * @details 限制now值向final值变化的速率，实现平滑过渡
+  *          每次调用最多变化ramp个单位，防止突变
+  *
+  *          应用场景：
+  *          - 电机加减速控制，防止电流冲击
+  *          - 目标值平滑切换，提高系统稳定性
+  *
+  * @param  final: 目标值（期望达到的最终值）
+  * @param  now:   当前值（需要向final逼近的值）
+  * @param  ramp:  斜率限制（每次调用允许的最大变化量，必须为正数）
+  * @retval int16_t: 限制变化速率后的新值
+  */
 int16_t RampInt(int16_t final, int16_t now, int16_t ramp)
 {
-	int32_t buffer = 0;
-	
-	buffer = final - now;
-	if (buffer > 0)
-	{
-		if (buffer > ramp)
-			now += ramp;
-		else
-			now += buffer;
-	}
-	else
-	{
-		if (buffer < -ramp)
-			now += -ramp;
-		else
-			now += buffer;
-	}
+    int32_t buffer = 0;  /* 计算当前值与目标值的差值 */
 
-	return now;
+    buffer = final - now;  /* 正数表示需要增大，负数表示需要减小 */
+
+    if (buffer > 0)
+    {
+        /* 需要增大的情况 */
+        if (buffer > ramp)
+            now += ramp;      /* 差值大于斜率限制，按最大速率增大 */
+        else
+            now += buffer;    /* 差值小于斜率限制，直接到达目标值 */
+    }
+    else
+    {
+        /* 需要减小的情况 */
+        if (buffer < -ramp)
+            now += -ramp;     /* 差值小于负斜率限制，按最大速率减小 */
+        else
+            now += buffer;    /* 差值大于负斜率限制，直接到达目标值 */
+    }
+
+    return now;
 }
 
+/**
+  * @brief  浮点斜坡函数（平滑过渡函数）
+  * @details 功能与RampInt相同，但使用浮点数运算，精度更高
+  *          限制now值向final值变化的速率，实现平滑过渡
+  *
+  * @param  final: 目标值（期望达到的最终值）
+  * @param  now:   当前值（需要向final逼近的值）
+  * @param  ramp:  斜率限制（每次调用允许的最大变化量，必须为正数）
+  * @retval float: 限制变化速率后的新值
+  */
 float RampFloat(float final, float now, float ramp)
 {
-	float buffer = 0;
-	
-	buffer = final - now;
-	if (buffer > 0)
-	{
-		if (buffer > ramp)
-			now += ramp;
-		else
-			now += buffer;
-	}
-	else
-	{
-		if (buffer < -ramp)
-			now += -ramp;
-		else
-			now += buffer;
-	}
+    float buffer = 0;  /* 计算当前值与目标值的差值 */
 
-	return now;	
+    buffer = final - now;
+
+    if (buffer > 0)
+    {
+        /* 需要增大的情况 */
+        if (buffer > ramp)
+            now += ramp;      /* 按最大斜率增大 */
+        else
+            now += buffer;    /* 直接到达目标值 */
+    }
+    else
+    {
+        /* 需要减小的情况 */
+        if (buffer < -ramp)
+            now += -ramp;     /* 按最大斜率减小 */
+        else
+            now += buffer;    /* 直接到达目标值 */
+    }
+
+    return now;
 }
 
+/**
+  * @brief  死区函数（消除抖动函数）
+  * @details 当输入值与中心值的偏差小于死区阈值时，输出中心值；
+  *          否则输出原始输入值。
+  *
+  *          应用场景：
+  *          - 摇杆中心位置死区，消除摇杆抖动
+  *          - 传感器零点漂移补偿
+  *          - 控制信号的小幅噪声滤除
+  *
+  * @param  input:  输入值（原始信号）
+  * @param  center: 中心值（死区中心，如摇杆中位）
+  * @param  death:  死区半径（允许的偏差范围）
+  * @retval float:  处理后的输出值
+  *                 - 在死区内：返回center
+  *                 - 在死区外：返回input
+  */
 float DeathZoom(float input, float center, float death)
 {
-	if(abs(input - center) < death)
-		return center;
-	return input;
+    /* 判断输入值与中心值的偏差是否在死区范围内 */
+    if(abs(input - center) < death)
+        return center;  /* 在死区内，返回中心值（消除抖动） */
+    return input;       /* 在死区外，返回原始输入值 */
 }

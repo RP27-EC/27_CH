@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file        rc_protocol.c
  * @author      RobotPilots
  * @Version     v1.1
@@ -6,7 +6,7 @@
  * @update
  *              v1.0(9-September-2020)
  *              v1.1(24-October-2021)
- *                  1.�޸�rc_potocol.c/.h->rc_protocol.c/.h 
+ *                  1.修改rc_potocol.c/.h->rc_protocol.c/.h 
  */
  
 #ifndef __RC_PROTOCOL_H

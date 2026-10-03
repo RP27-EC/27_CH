@@ -1,4 +1,4 @@
-/**
+﻿/**
   ******************************************************************************
   * @file    RM_motor.h
   * @brief   RM电机驱动
@@ -25,7 +25,8 @@
 #define _6020_TORQUE_CONSTANT     1.f //6020的转速常数，rpm/V
 #define _6020_MAX_CURRENT         25000.f    //3508输出最大电流，手册-20~20A
 
-#define _3508_REDUCT_RATIO        (268.f/17.f)
+//#define _3508_REDUCT_RATIO        (268.f/17.f)
+#define _3508_REDUCT_RATIO        (3591.f/187.f)
 #define _2006_REDUCT_RATIO        (36.f/1.f)
 /*电机模式*/
 typedef enum Motor_RM_Type

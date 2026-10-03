@@ -1,9 +1,19 @@
 /**
   ******************************************************************************
   * @file           : control_task.c
-  * @brief          : FreeRTOS控制任务
-  * @details        : 底盘和云台的主控制任务，运行周期2ms。
-  *                   负责读取遥控器输入、检查系统状态、调用底盘和云台控制函数。
+  * @brief          : FreeRTOS控制任务 —— 整车主控制循环
+  * @details        : 本文件实现底盘和云台的主控制任务，是整个软件系统的核心调度任务。
+  *                   运行周期2ms（500Hz），负责以下工作：
+  *
+  *                   1. 系统初始化：底盘、云台、状态机、板间通信初始化
+  *                   2. 板间通信超时检测（看门狗）
+  *                   3. 整车状态机更新（模式切换与动作指令解析）
+  *                   4. 云台控制更新（Yaw轴串级PID闭环）
+  *                   5. 失联保护检测
+  *                   6. 底盘控制更新（麦轮运动学解算与电机驱动）
+  *
+  *                   控制流程（每2ms执行一次）：
+  *                   Communicate_Check_Timeout -> Car_Control_Update -> Gimbal_Update -> Chassis_Update
   ******************************************************************************
   */
 
@@ -15,59 +25,62 @@
 #include "gimbal.h"
 #include "car_control.h"
 #include "communicate.h"   /* 板间通信模块 */
+#include "shoot.h"         /* 拨弹控制模块 */
 
-/**
-  * @brief  控制任务主函数
-  * @details FreeRTOS任务函数，运行周期2ms，负责：
-  *          1. 初始化底盘、云台、状态机与通信
-  *          2. 循环读取遥控器输入
-  *          3. 检查遥控器与板间通信在线状态（失联保护）
-  *          4. 调用云台和底盘控制函数更新电机
-  *
-  * @param  argument: 任务参数（未使用）
-  * @retval None
-  */
+
 void StartCtrlTask(void *argument)
 {
     uint32_t next_wake;
-    (void)argument;  // 不让编译器报 warning
+    (void)argument;  /* 消除未使用参数警告 */
 
-    Chassis_Init();  /* 初始化底盘，确保上电后静止 */
-    Gimbal_Init(&hero_gimbal);
-    Car_Control_Init(&hero_car);
-    Communicate_Init();
+    /* ====== 系统初始化阶段 ====== */
+    Chassis_Init();              /* 初始化底盘，确保上电后所有轮子静止 */
+    Gimbal_Init(&hero_gimbal);   /* 初始化云台，设置PID参数、进入休眠模式 */
+    Car_Control_Init(&hero_car); /* 初始化整车状态机，默认SLEEP模式 */
+    Communicate_Init();          /* 初始化板间通信，标记上层C板为离线 */
+    Shoot_Init();                /* 初始化拨弹电机与拨弹状态机 */
 
-    osDelay(100);
+    osDelay(100);  /* 等待100ms，确保各硬件设备就绪 */
 
-    next_wake = osKernelGetTickCount();  /* 获取当前时间戳 */
+    next_wake = osKernelGetTickCount();  /* 获取RTOS当前时间戳作为基准 */
+
 
     for (;;) {
-        /* 0. 板间通信看门狗超时检测 */
+
+        /*板间通信看门狗*/
         Communicate_Check_Timeout();
 
-        /* 1. 状态机更新（解析摇杆与拨轮切模） */
+        /*整车状态机更新 */
         Car_Control_Update(&hero_car);
 
-        /* 2. 云台控制更新（执行 Yaw 轴串级 PID 计算并驱动 KT 电机） */
+        /*云台控制更新*/
         Gimbal_Update(&hero_gimbal, hero_car.mode);
 
-        /* 3. 失联保护检测：整车休眠或遥控器离线时触发保护 */
+        /* 当整车处于休眠模式或遥控器离线时，触发底盘失联保护 */
         const bool chassis_failsafe = (hero_car.mode == CAR_MODE_SLEEP ||
                                        rc_sensor.work_state != DEV_ONLINE);
 
-        /*==========================================================================
-         * 底盘控制更新
-         * 读取遥控器三轴通道值与云台相对夹角，调用底盘控制函数
-         *==========================================================================*/
-        Chassis_Update(rc_sensor.info->ch3,                  /* 前后平移 (ch3) */
-                       rc_sensor.info->ch2,                  /* 左右平移 (ch2) */
-                       rc_sensor.info->ch0,                  /* 机械自旋 (ch0) */
-                       hero_gimbal.yaw.feedback_mec_angle,   /* 云台相对车头夹角 Δθ */
+        /* 拨弹：消费整车标志，驱动拨盘 RM3508，并写 is_fric_on */
+        Shoot_Update(&hero_car, chassis_failsafe);
+
+        /* 通过 0xD1 发给上层板（pitch + 摩擦轮标志） */
+        board_tx_info.pitch_encoder_tar = hero_gimbal.pitch.target_mec_angle;
+        board_tx_info.pitch_enable =
+            (hero_gimbal.mode != GIMBAL_MODE_SLEEP &&
+             hero_gimbal.mode != GIMBAL_MODE_INIT &&
+             rc_sensor.work_state == DEV_ONLINE &&
+             rc_sensor.errno == NONE_ERR) ? 1U : 0U;
+        Board_Tx_D1();
+
+        Chassis_Update(rc_sensor.info->ch3,                  /* 前后平移通道 ch3 */
+                       rc_sensor.info->ch2,                  /* 左右平移通道 ch2 */
+                       rc_sensor.info->ch0,                  /* 自旋转通道 ch0 */
+                       hero_gimbal.yaw.feedback_mec_angle,   /* 云台相对车头夹角 Δθ（弧度） */
                        hero_car.mode,                        /* 整车当前模式 */
                        chassis_failsafe);                    /* 失联保护标志 */
 
-        /* 任务调度：等待2ms后再次执行 */
-        next_wake += 2U;              /* 设置唤醒时间为最开始进入这个函数2ms后 */
-        osDelayUntil(next_wake);      /* 精确延时到下次唤醒时间 OS 让任务进入 Blocked 阻塞态，让出 CPU */
+        /*--- 任务调度：精确等待2ms后再次执行 ---*/
+        next_wake += 2U;              /* 设置目标唤醒时间 = 初始时间 + 2ms */
+        osDelayUntil(next_wake);      /* 精确延时到目标时间，让出CPU给其他低优先级任务 */
     }
 }

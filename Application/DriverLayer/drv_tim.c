@@ -1,34 +1,77 @@
 /**
  ******************************************************************************
  * @file    drv_tim.c
- * @brief   定时器驱动
+ * @brief   定时器外设驱动文件
  ******************************************************************************
  * @attention
- * 
+ *
+ * 该文件用于定时器（Timer）外设的驱动配置，包括：
+ * - 定时器基本初始化和中断启动
+ * - PWM输出控制
+ *
+ * 定时器在机器人系统中的典型用途：
+ * - 作为系统时基（如TIM2用于HAL时基）
+ * - PWM输出控制LED亮度、舵机角度等
+ * - 输入捕获用于测量外部信号频率/脉宽
+ *
+ * 当前文件中的大部分代码已被注释掉，
+ * 定时器的具体配置主要在CubeMX中完成。
+ *
  * Copyright 2024 RobotPilots
  ******************************************************************************
  */
 
 /* Includes ------------------------------------------------------------------*/
+/* 包含定时器驱动头文件 */
 #include "drv_tim.h"
 
 /* Private macro -------------------------------------------------------------*/
+/* 私有宏定义（当前未使用） */
+
 /* Private function prototypes -----------------------------------------------*/
+/* 私有函数前置声明（当前未使用） */
+
 /* Private typedef -----------------------------------------------------------*/
+/* 私有类型定义（当前未使用） */
+
 /* Private variables ---------------------------------------------------------*/
+/* 私有变量（当前未使用） */
+
 /* Exported variables --------------------------------------------------------*/
-//extern TIM_HandleTypeDef htim4;
-//extern TIM_HandleTypeDef htim3;
+/* 导出变量（当前未使用） */
+//extern TIM_HandleTypeDef htim4;  /* TIM4句柄外部声明（已注释） */
+//extern TIM_HandleTypeDef htim3;  /* TIM3句柄外部声明（已注释） */
+
 /* Private functions ---------------------------------------------------------*/
+/* 私有函数（当前未使用） */
+
 /* Exported functions --------------------------------------------------------*/
+
+/**
+ * @brief  TIM4初始化函数（已注释，备用）
+ * @param  无
+ * @retval 无
+ * @note   初始化TIM4并启动定时器中断
+ *         可用于周期性任务调度或定时采样
+ *         该函数目前被注释掉，定时器配置在CubeMX中完成
+ */
 //void TIM4_Init(void)
 //{
-//	HAL_TIM_Base_Init(&htim4);
-//	HAL_TIM_Base_Start_IT(&htim4);
+//	HAL_TIM_Base_Init(&htim4);          /* 初始化TIM4基本参数（预分频、周期等） */
+//	HAL_TIM_Base_Start_IT(&htim4);      /* 启动TIM4并开启更新中断 */
 //}
 
+/**
+ * @brief  TIM3 PWM输出设置函数（已注释，备用）
+ * @param  compare: PWM比较值，控制占空比
+ *                  值越大，占空比越高，输出高电平时间越长
+ * @retval 无
+ * @note   启动TIM3通道4的PWM输出，并设置比较值
+ *         可用于控制LED亮度、舵机角度等
+ *         该函数目前被注释掉
+ */
 //void TIM3_Set_PWM(uint16_t compare)
 //{
-//    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
-//    __HAL_TIM_SetCompare(&htim3, TIM_CHANNEL_4, compare);
+//    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);    /* 启动TIM3通道4的PWM输出 */
+//    __HAL_TIM_SetCompare(&htim3, TIM_CHANNEL_4, compare);  /* 设置PWM比较值（占空比） */
 //}

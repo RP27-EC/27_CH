@@ -1,4 +1,4 @@
-#ifndef __BUZZER_H
+ï»¿#ifndef __BUZZER_H
 #define __BUZZER_H
 
 #include "tim.h"
@@ -18,14 +18,14 @@ typedef struct buzzer_config_struct {
 }buzzer_config_t;
 
 
-// ÒôÁ¿-Òô·û-Ê±³¤½á¹¹Ìå£º°ó¶¨Ã¿¸öÒô·ûµÄÆµÂÊºÍ²¥·ÅÊ±³¤
+// éŸ³é‡-éŸ³ç¬¦-æ—¶é•¿ç»“æ„ä½“ï¼šç»‘å®šæ¯ä¸ªéŸ³ç¬¦çš„é¢‘ç‡å’Œæ’­æ”¾æ—¶é•¿
 typedef struct note_duration {
-	float volume;				/* ÒôÁ¿ */
-    float freq;     			/* Òô·ûÆµÂÊ£¨Hz£© */
-    uint32_t duration; 			/* ²¥·ÅÊ±³¤£¨ºÁÃë£© */
+	float volume;				/* éŸ³é‡ */
+    float freq;     			/* éŸ³ç¬¦é¢‘ç‡ï¼ˆHzï¼‰ */
+    uint32_t duration; 			/* æ’­æ”¾æ—¶é•¿ï¼ˆæ¯«ç§’ï¼‰ */
 }note_duration_t;
 
-/* Ä¿±ê½á¹¹Ìå */
+/* ç›®æ ‡ç»“æ„ä½“ */
 typedef struct buzzer_input_info_struct {
 	float volume;				 
     float freq;   		

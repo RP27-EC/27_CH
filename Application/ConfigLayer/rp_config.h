@@ -1,4 +1,4 @@
-/**
+ï»¿/**
  * @file        rp_config.c
  * @author      RobotPilots
  * @Version     v1.1
@@ -6,8 +6,8 @@
  * @update
  *              v1.0(9-September-2020)
  *              v1.1(7-November-2021)
- *                  1.ÓÅ»¯Éè±¸ÀàĞÅÏ¢Óë½á¹¹ÌåµÄ±äÁ¿¶¨Òå£¬Ôö¼Óvolatile/const¹Ø¼ü×Ö
- *                  //2.½«rp_config.h·Ö³Édriver_config.h, device_config.h, user_config.hÈı¸öÍ·ÎÄ¼ş    
+ *                  1.ä¼˜åŒ–è®¾å¤‡ç±»ä¿¡æ¯ä¸ç»“æ„ä½“çš„å˜é‡å®šä¹‰ï¼Œå¢åŠ volatile/constå…³é”®å­—
+ *                  //2.å°†rp_config.håˆ†æˆdriver_config.h, device_config.h, user_config.hä¸‰ä¸ªå¤´æ–‡ä»¶    
  */
 #ifndef __RP_CONFIG_H
 #define __RP_CONFIG_H
@@ -16,29 +16,29 @@
 #include "stm32h7xx_hal.h"
 #include "stdbool.h"
 #include "string.h"
-// Çı¶¯²ãÅäÖÃ
+// é©±åŠ¨å±‚é…ç½®
 #include "rp_driver_config.h"
-// Éè±¸²ãÅäÖÃ
+// è®¾å¤‡å±‚é…ç½®
 #include "rp_device_config.h"
-// ÓÃ»§²ãÅäÖÃ
+// ç”¨æˆ·å±‚é…ç½®
 #include "rp_user_config.h"
 
 /* Exported macro ------------------------------------------------------------*/
-/*ÓĞÎŞ³¬µç*/
+/*æœ‰æ— è¶…ç”µ*/
 #define CAP_ENABLE		1
-/*ÓĞÎŞ²ÃÅĞÏµÍ³*/
+/*æœ‰æ— è£åˆ¤ç³»ç»Ÿ*/
 #define JUDGE_ENABLE 	1
 
-/*Ñ¡ÔñIMU½âËãËã·¨ÎªMahony*/
+/*é€‰æ‹©IMUè§£ç®—ç®—æ³•ä¸ºMahony*/
 #define IMU_USE_MAHONY  0
-/*Ñ¡ÔñIMU½âËãËã·¨ÎªEKF*/
+/*é€‰æ‹©IMUè§£ç®—ç®—æ³•ä¸ºEKF*/
 #define IMU_USE_EKF 	1
 /* Exported types ------------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
-//ÒÔÏÂÎª»ã±àº¯Êı
-void WFI_SET(void);		//Ö´ĞĞWFIÖ¸Áî
-void INTX_DISABLE(void);//¹Ø±ÕËùÓĞÖĞ¶Ï
-void INTX_ENABLE(void);	//¿ªÆôËùÓĞÖĞ¶Ï
-void MSR_MSP(uint32_t addr);	//ÉèÖÃ¶ÑÕ»µØÖ· 
+//ä»¥ä¸‹ä¸ºæ±‡ç¼–å‡½æ•°
+void WFI_SET(void);		//æ‰§è¡ŒWFIæŒ‡ä»¤
+void INTX_DISABLE(void);//å…³é—­æ‰€æœ‰ä¸­æ–­
+void INTX_ENABLE(void);	//å¼€å¯æ‰€æœ‰ä¸­æ–­
+void MSR_MSP(uint32_t addr);	//è®¾ç½®å †æ ˆåœ°å€ 
 
 #endif

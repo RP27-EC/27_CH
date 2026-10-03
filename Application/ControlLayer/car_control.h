@@ -18,7 +18,6 @@ typedef enum {
     CAR_MODE_GYRO,          /* 陀螺仪跟随模式 (默认主力模式) */
     CAR_MODE_MECH,          /* 机械模式 (底盘与云台对齐车头) */
     CAR_MODE_SPIN,          /* 小陀螺自旋模式 */
-    CAR_MODE_LOB,           /* 吊射模式 (大俯仰角前哨战抛射) */
 } CarMode_e;
 
 /* 自瞄状态枚举 */
@@ -37,7 +36,7 @@ typedef enum {
 typedef struct {
     bool is_shoot_system_on;    /* 摩擦轮开启标志 */
     bool is_single_shoot_cmd;   /* 单发打弹脉冲指令 */
-    bool is_outpost_mode;       /* 自动前哨站打弹标志 */
+    bool is_continuous_shoot;   /* 连发标志（拨弹持续转动） */
     VisionMode_e vision_mode;   /* 视觉自瞄模式 */
 } CarFlags_t;
 

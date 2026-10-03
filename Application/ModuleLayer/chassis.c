@@ -2,9 +2,9 @@
   ******************************************************************************
   * @file           : chassis.c
   * @brief          : 底盘控制模块
-  * @details        : 实现底盘的初始化、停止、更新控制等功能。
-  *                   将遥控器输入的通道值转换为底盘运动指令，通过麦轮运动学
-  *                   解算后控制四个电机的转速，实现全向运动。
+  * @details        : 本文件实现了麦克纳姆轮底盘的完整控制逻辑，包括：
+  *                   遥控器输入 -> 归一化 -> 坐标旋转（可选）-> 麦轮解算 -> PID控制 -> CAN下发
+  *
   ******************************************************************************
   */
 
@@ -16,15 +16,6 @@
 
 #include <math.h>
 
-#define CHASSIS_PI              (3.14159265358979323846f)
-#define CHASSIS_SPIN_NORMALIZED (1.0f)
-
-/**
-  * @brief  四个轮子的方向系数数组
-  * @details 由于电机安装位置和转向不同，需要通过方向系数进行补偿。
-  *          正值表示电机正转时轮子正向运动，负值表示需要反转。
-  *          具体方向由实际机械安装决定，需要调试确定。
-  */
 static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_FL_DIRECTION,  /* 前左轮方向系数 */
     CHASSIS_FR_DIRECTION,  /* 前右轮方向系数 */
@@ -32,18 +23,17 @@ static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_BR_DIRECTION,  /* 后右轮方向系数 */
 };
 
-/**
-  * @brief  遥控器通道值限幅与归一化
-  * @param  channel : 遥控器通道原始值，范围[-660, 660]
-  * @retval 归一化后的浮点值，范围[-1.0, 1.0]
-  */
+
+
+static float chassis_yaw_ff_filtered = 0.0f;
+
 static float Chassis_Clamp_Channel(int16_t channel)
 {
-    /* 上限限幅：不超过最大值 */
+    /* 上限限幅：不超过最大值660 */
     if (channel > (int16_t)CHASSIS_RC_MAX_VALUE) {
         channel = (int16_t)CHASSIS_RC_MAX_VALUE;
     }
-    /* 下限限幅：不低于负最大值 */
+    /* 下限限幅：不低于负最大值-660 */
     else if (channel < -(int16_t)CHASSIS_RC_MAX_VALUE) {
         channel = -(int16_t)CHASSIS_RC_MAX_VALUE;
     }
@@ -52,6 +42,27 @@ static float Chassis_Clamp_Channel(int16_t channel)
     return (float)channel / CHASSIS_RC_MAX_VALUE;
 }
 
+
+/* 前后通道死区：死区内输出0，死区外重新映射，保证满杆仍为满量程。 */
+static float Chassis_Clamp_Channel_Deadzone(int16_t channel, int16_t deadzone)
+{
+    if (channel > (int16_t)CHASSIS_RC_MAX_VALUE) {
+        channel = (int16_t)CHASSIS_RC_MAX_VALUE;
+    } else if (channel < -(int16_t)CHASSIS_RC_MAX_VALUE) {
+        channel = -(int16_t)CHASSIS_RC_MAX_VALUE;
+    }
+    if (channel <= deadzone && channel >= -deadzone) {
+        return 0.0f;
+    }
+    if (channel > 0) {
+        channel -= deadzone;
+    } else {
+        channel += deadzone;
+    }
+    return (float)channel / (CHASSIS_RC_MAX_VALUE - (float)deadzone);
+}
+
+/*浮点值钳位到[-1.0, 1.0]范围 */
 static float Chassis_Clamp_Normalized(float value)
 {
     if (value > 1.0f) {
@@ -63,21 +74,39 @@ static float Chassis_Clamp_Normalized(float value)
     return value;
 }
 
-/**
-  * @brief  底盘紧急停止
-  * @details 立即停止所有轮子的运动，清零PID控制器状态和电机输出。
-  *          用于失联保护、紧急情况等场景。
-  *
-  * @note   该函数会清零所有PID状态变量，确保电机完全停止
-  * @retval None
-  */
+/* 非线性跟随：死区外采用线性项与带符号二次项，输出保持麦轮解算所需的归一化量纲。 */
+float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
+{
+    float err_eff;
+    float wz_norm;
+
+    /* 夹角很小时不跟转，避免车头在目标附近来回抖动。 */
+    if (fabsf(delta_angle) < CHASSIS_FOLLOW_DEADZONE) {
+        return 0.0f;
+    }
+
+    /* 扣除死区宽度，使指令在死区边界从0连续增大。 */
+    if (delta_angle > 0.0f) {
+        err_eff = delta_angle - CHASSIS_FOLLOW_DEADZONE;
+    } else {
+        err_eff = delta_angle + CHASSIS_FOLLOW_DEADZONE;
+    }
+
+    /* err_eff * |err_eff| 保留旋转方向，确保正负夹角的输出大小对称。 */
+    wz_norm = (FOLLOW_K_LINEAR * err_eff) +
+              (FOLLOW_K_QUADRATIC * err_eff * fabsf(err_eff));
+    /* 麦轮解算使用归一化旋转指令，最终限制在[-1, 1]。 */
+    return Chassis_Clamp_Normalized(wz_norm);
+}
+
+
 void Chassis_Stop(void)
 {
     /* 遍历四个轮子，逐个清零PID控制器和电机输出 */
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
         pid_ctrl_t *speed_pid = Chassis_Motor[i].ctrl->speed_ctrl;
 
-        /* 清零PID控制器所有状态变量 */
+        /* 清零PID控制器所有状态变量，确保不会残留上一次的积分和微分 */
         pid_clear(speed_pid);           /* 清零积分项和微分项 */
         speed_pid->target = 0.0f;       /* 目标值清零 */
         speed_pid->measure = 0.0f;      /* 测量值清零 */
@@ -95,19 +124,16 @@ void Chassis_Stop(void)
         Chassis_Motor[i].tx_info->torque_current_raw = 0;  /* 原始力矩电流清零 */
     }
 
-    /* 通过CAN总线发送停止指令到所有电机 */
+    /* 通过CAN总线批量发送停止指令到所有电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);
 }
 
-/**
-  * @brief  底盘初始化
-  * @details 调用上面的Chassis_Stop停止函数，确保上电后底盘处于静止状态
-  * @retval None
-  */
+
 void Chassis_Init(void)
 {
     Chassis_Stop();  /* 初始化时先停止底盘，确保安全 */
 }
+
 
 /**
   * @brief  底盘控制更新函数
@@ -115,25 +141,34 @@ void Chassis_Init(void)
   *          计算并设置四个电机的目标转速，实现底盘全向运动。
   *
   *          控制流程：
-  *          1. 检查是否需要失联保护
+  *          1. 检查是否需要失联保护或处于休眠/初始化模式
   *          2. 将遥控器通道值归一化到[-1, 1]
-  *          3. 调用麦轮运动学解算，计算四个轮子的目标转速
-  *          4. 应用轮子方向系数，设置电机速度目标
-  *          5. 通过CAN总线发送控制指令
+  *          3. 在陀螺仪/小陀螺模式下进行坐标系旋转：
+  *             将云台坐标系的输入旋转delta_theta角度到底盘坐标系
+  *          4. 调用麦轮运动学解算，计算四个轮子的目标转速
+  *          5. 应用轮子方向系数，设置电机速度目标
+  *          6. 通过CAN总线批量发送控制指令
   *
-  * @param  forward : 前后方向遥控器通道值，正值向前，范围[-660, 660]
-  * @param  lateral : 左右方向遥控器通道值，正值向左，范围[-660, 660]
-  * @param  rotate  : 旋转方向遥控器通道值，正值逆时针，范围[-660, 660]
-  * @param  failsafe: 失联保护标志，true时立即停止底盘
+  * @param  forward    : 前后方向遥控器通道值，正值向前，范围[-660, 660]
+  * @param  lateral    : 左右方向遥控器通道值，正值向左，范围[-660, 660]
+  * @param  rotate     : 旋转方向遥控器通道值，正值逆时针，范围[-660, 660]
+  * @param  delta_theta: 云台相对车头的夹角（弧度），用于坐标系旋转
+  * @param  car_mode   : 整车当前模式，决定是否进行坐标旋转
+  * @param  failsafe   : 失联保护标志，true时立即停止底盘
   * @retval None
   */
 void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                     float delta_theta, CarMode_e car_mode, bool failsafe)
 {
     float wheel_rpm[CHASSIS_WHEEL_COUNT];  /* 四个轮子的目标转速(RPM) */
-    float vx = Chassis_Clamp_Channel(forward);
-    float vy = Chassis_Clamp_Channel(lateral);
-    float wz = Chassis_Clamp_Channel(rotate);
+
+    /* 将遥控器通道原始值归一化到[-1, 1] */
+    float vx = Chassis_Clamp_Channel_Deadzone(forward, CHASSIS_FORWARD_DEADZONE);     /* 前后速度（带中位死区） */
+    float vy = -Chassis_Clamp_Channel(lateral);   /* 左右速度 ，修改方向*/
+
+    /* 机械模式：摇杆左打对应底盘逆时针，故反向旋转通道。 */
+    /* 右摇杆左右(ch0)使用中位死区；死区外重新映射，保持满杆仍为满量程。 */
+    float wz = -Chassis_Clamp_Channel_Deadzone(rotate, CHASSIS_ROTATE_DEADZONE);
 
     /* 失联保护：立即停止底盘并返回 */
     if (failsafe) {
@@ -141,51 +176,76 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
         return;
     }
 
+    /* 初始化/休眠模式：停止底盘 */
     if (car_mode == CAR_MODE_INIT || car_mode == CAR_MODE_SLEEP) {
         Chassis_Stop();
         return;
     }
 
-    if (car_mode == CAR_MODE_GYRO || car_mode == CAR_MODE_LOB ||
-        car_mode == CAR_MODE_SPIN) {
+    //速度从云台坐标系转换到底盘坐标系
+    if (car_mode == CAR_MODE_GYRO || car_mode == CAR_MODE_SPIN) {
+        /* 预计算三角函数值 */
         const float cos_theta = cosf(delta_theta);
         const float sin_theta = sinf(delta_theta);
+
+        /* 保存云台坐标系下的输入 */
         const float gimbal_vx = vx;
         const float gimbal_vy = vy;
 
+        /* 2D旋转矩阵变换：云台坐标系 -> 底盘坐标系 */
         vx = gimbal_vx * cos_theta - gimbal_vy * sin_theta;
         vy = gimbal_vx * sin_theta + gimbal_vy * cos_theta;
 
+        /* 小陀螺模式：底盘恒定以最大速度自旋，忽略操作手旋转输入 */
         if (car_mode == CAR_MODE_SPIN) {
-            wz = CHASSIS_SPIN_NORMALIZED;
+            wz = Chassis_Clamp_Normalized(CHASSIS_SPIN_NORMALIZED);
+            chassis_yaw_ff_filtered = 0.0f;
+
+            /* 旋转优先*/
+            const float trans_max = 1.0f - fabsf(wz);//剩给前进的速度
+            const float trans_sum = fabsf(vx) + fabsf(vy); //遥控输入要多少
+            if (trans_sum > trans_max && trans_sum > 0.001f) { //要且要的太多
+                const float trans_scale = trans_max / trans_sum;
+                vx *= trans_scale;
+                vy *= trans_scale;
+            }
         } else {
-            wz = Chassis_Clamp_Normalized(delta_theta / CHASSIS_PI);
+            /* 右摇杆回中时立即清空前馈，避免低通滤波残值造成松手后继续旋转。 */
+            if (fabsf((float)rotate) <= (float)CHASSIS_ROTATE_DEADZONE) {
+                chassis_yaw_ff_filtered = 0.0f;
+                wz = 0.0f;
+            } else {
+                /* 非回中时才对右摇杆旋转输入进行低通平滑 */
+                /* 一阶低通滤波（加权平均形式）：新值 = (1-α)×旧值 + α×摇杆输入 */
+                chassis_yaw_ff_filtered =
+                    (1.0f - CHASSIS_YAW_FF_LPF_ALPHA) * chassis_yaw_ff_filtered +
+                    CHASSIS_YAW_FF_LPF_ALPHA * wz;
+                    //得到摇杆前馈的值
+            }
+            wz = Chassis_Calc_Follow_Wz_Norm(delta_theta) + //偏移角度经过线性非线性误差叠加
+                 CHASSIS_YAW_FF_GAIN * chassis_yaw_ff_filtered;//摇杆前馈乘以比例系数
+            wz = Chassis_Clamp_Normalized(wz);
         }
+    } else {
+        chassis_yaw_ff_filtered = 0.0f;
     }
 
-    /*==========================================================================
-     * 麦轮运动学解算
-     * 将遥控器三轴输入归一化后，通过运动学公式计算四个轮子的目标转速
-     *==========================================================================*/
-    Chassis_Mecanum_Calculate(vx,                              /* 前后速度归一化 */
-                              vy,                              /* 左右速度归一化 */
-                              wz,                              /* 旋转速度归一化 */
-                              CHASSIS_MAX_MOTOR_RPM,           /* 电机最大转速限制 */
-                              wheel_rpm);                      /* 输出：四个轮子转速 */
 
-    /*==========================================================================
-     * 设置电机速度目标
-     * 将运动学解算得到的轮子转速乘以方向系数后，设置为电机PID控制器的目标值
-     *==========================================================================*/
+    Chassis_Mecanum_Calculate(vx,
+                              vy,
+                              wz,
+                              CHASSIS_MAX_MOTOR_RPM,           /* 电机最大转速限制(6000RPM) */
+                              wheel_rpm);                      /* 输出：四个轮子转速(RPM) */
+
+
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
-        /* 设置速度PID目标值：轮子转速 × 方向系数 */
+        /* 设置速度PID目标值：轮子转速(RPM) * 方向系数(+1/-1) */
         Chassis_Motor[i].ctrl->speed_ctrl->target =
             wheel_rpm[i] * chassis_wheel_direction[i];
 
-        /* 调用单个电机的速度设置函数 */
         Chassis_Motor[i].single_set_speed(&Chassis_Motor[i]);
     }
 
-    /* 通过CAN总线批量发送所有电机的控制指令 */
+    /* 一次CAN帧发送4个电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);
 }

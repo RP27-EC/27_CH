@@ -1,4 +1,4 @@
-#ifndef __DRV_FLASH_H
+ï»¿#ifndef __DRV_FLASH_H
 #define __DRV_FLASH_H
 
 /* Includes ------------------------------------------------------------------*/
@@ -8,9 +8,9 @@
 /* Exported constants --------------------------------------------------------*/
 /* Exported macro ------------------------------------------------------------*/
 #define IMU_DATA_ADDR	0x080E0000
-#define FLASH_TYPEPROGRAM_BYTE    ((uint32_t)0x00000001U)  // °´×Ö½Ú£¨Byte£©±à³Ì
-#define FLASH_TYPEPROGRAM_HALFWORD ((uint32_t)0x00000002U)  // °´°ë×Ö£¨Halfword£©±à³Ì
-#define FLASH_TYPEPROGRAM_WORD    ((uint32_t)0x00000000U)  // °´×Ö£¨Word£©±à³Ì
+#define FLASH_TYPEPROGRAM_BYTE    ((uint32_t)0x00000001U)  // æŒ‰å­—èŠ‚ï¼ˆByteï¼‰ç¼–ç¨‹
+#define FLASH_TYPEPROGRAM_HALFWORD ((uint32_t)0x00000002U)  // æŒ‰åŠå­—ï¼ˆHalfwordï¼‰ç¼–ç¨‹
+#define FLASH_TYPEPROGRAM_WORD    ((uint32_t)0x00000000U)  // æŒ‰å­—ï¼ˆWordï¼‰ç¼–ç¨‹
 /* Exported functions --------------------------------------------------------*/
 void Flash_ReadData(uint32_t addr, uint32_t *buf, uint16_t len);
 void Flash_WriteByteData(uint32_t addr,uint8_t *data,uint16_t num);

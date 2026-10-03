@@ -1444,6 +1444,16 @@
               <FileType>5</FileType>
               <FilePath>..\Application\ModuleLayer\gimbal.h</FilePath>
             </File>
+            <File>
+              <FileName>shoot.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ModuleLayer\shoot.c</FilePath>
+            </File>
+            <File>
+              <FileName>shoot.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\ModuleLayer\shoot.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1493,6 +1503,16 @@
               <FileName>chassis_motor.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\DeviceLayer\chassis_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>shoot_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\DeviceLayer\shoot_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>shoot_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\DeviceLayer\shoot_motor.h</FilePath>
             </File>
             <File>
               <FileName>gimbal_motor.c</FileName>

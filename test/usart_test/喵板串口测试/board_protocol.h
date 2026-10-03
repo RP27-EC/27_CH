@@ -1,13 +1,13 @@
-#ifndef __BOARD_PROTOCOL_H
+ï»¿#ifndef __BOARD_PROTOCOL_H
 #define __BOARD_PROTOCOL_H
 
 #include "stm32h7xx.h"
 #include "stdbool.h"
 #include "crc.h"
 #include "string.h"
-//°å¼äÍ¨ĞÅ²âÊÔ
+//æ¿é—´é€šä¿¡æµ‹è¯•
 typedef struct {
-    // -------------------- 1×Ö½Ú×Ö¶Î£ºuint8_t ¡Á 12¸ö --------------------
+    // -------------------- 1å­—èŠ‚å­—æ®µï¼šuint8_t Ã— 12ä¸ª --------------------
     uint8_t  u8_1;
     uint8_t  u8_2;
     uint8_t  u8_3;
@@ -21,7 +21,7 @@ typedef struct {
     uint8_t  u8_11;
     uint8_t  u8_12;
 
-    // -------------------- 2×Ö½Ú×Ö¶Î£ºuint16_t ¡Á 8¸ö -------------------
+    // -------------------- 2å­—èŠ‚å­—æ®µï¼šuint16_t Ã— 8ä¸ª -------------------
     uint16_t u16_1;
     uint16_t u16_2;
     uint16_t u16_3;
@@ -31,7 +31,7 @@ typedef struct {
     uint16_t u16_7;
     uint16_t u16_8;
 
-    // -------------------- 4×Ö½Ú×Ö¶Î£ºuint32_t ¡Á 8¸ö -------------------
+    // -------------------- 4å­—èŠ‚å­—æ®µï¼šuint32_t Ã— 8ä¸ª -------------------
     uint32_t u32_1;
     uint32_t u32_2;
     uint32_t u32_3;

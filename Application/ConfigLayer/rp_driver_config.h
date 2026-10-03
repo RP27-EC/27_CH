@@ -1,4 +1,4 @@
-/**
+ï»¿/**
  * @file        rp_driver_config.h
  * @author      RobotPilots
  * @Version     v1.0
@@ -17,9 +17,9 @@
 #define configDRV_CAN_USE_MAIL  1
 
 /* Exported types ------------------------------------------------------------*/
-/* Çı¶¯²ã --------------------------------------------------------------------*/
+/* é©±åŠ¨å±‚ --------------------------------------------------------------------*/
 /**
- *	@brief	Çı¶¯ÀàĞÍ
+ *	@brief	é©±åŠ¨ç±»å‹
  *	@class	driver
  */
 typedef enum drv_type{
@@ -31,7 +31,7 @@ typedef enum drv_type{
 } drv_type_t;
 
 /**
- *	@brief	canÇı¶¯ id
+ *	@brief	cané©±åŠ¨ id
  *	@class	driver
  */
 typedef enum {
@@ -40,7 +40,7 @@ typedef enum {
 } can_id_t;
 
 /**
- *	@brief	iicÇı¶¯ id
+ *	@brief	iicé©±åŠ¨ id
  *	@class	driver
  */
 typedef enum {
@@ -48,7 +48,7 @@ typedef enum {
 } iic_id_t;
 
 /**
- *	@brief	spiÇı¶¯ id
+ *	@brief	spié©±åŠ¨ id
  *	@class	driver
  */
 typedef enum {
@@ -56,7 +56,7 @@ typedef enum {
 } spi_id_t;
 
 /**
- *	@brief	uartÇı¶¯ id
+ *	@brief	uarté©±åŠ¨ id
  *	@class	driver
  */
 typedef enum {
@@ -69,7 +69,7 @@ typedef enum {
 } uart_id_t;
 
 /**
- *	@brief	iicÇı¶¯
+ *	@brief	iicé©±åŠ¨
  *	@class	driver
  */
 typedef struct drv_iic {
@@ -78,28 +78,28 @@ typedef struct drv_iic {
 } drv_iic_t;
 
 /**
- *	@brief	canÇı¶¯
+ *	@brief	cané©±åŠ¨
  *	@class	driver
  */
 typedef struct drv_can_tx {
-    can_id_t    id;				// CAN1»òCAN2
-		uint32_t	tx_id;  		// ÉÏ´«±¨ÎÄ±êÊ¶·û
+    can_id_t    id;				// CAN1æˆ–CAN2
+		uint32_t	tx_id;  		// ä¸Šä¼ æŠ¥æ–‡æ ‡è¯†ç¬¦
 	uint8_t dlc;
-	uint8_t		*CANx_XXX_DATA; // ·¢ËÍµÄÊı×é
+	uint8_t		*CANx_XXX_DATA; // å‘é€çš„æ•°ç»„
 } drv_can_txid;
 
 typedef struct drv_can {
 	drv_can_txid *tx_message;
     uint32_t    err_cnt;
-	uint32_t	rx_id;  		// ·´À¡±¨ÎÄ±êÊ¶·û
-	uint8_t		data_id;		// Êı¾İÏÂ±ê
-    uint16_t    tx_period;  	// ¶¨Ê±·¢ËÍ¼ä¸ô(ms)
+	uint32_t	rx_id;  		// åé¦ˆæŠ¥æ–‡æ ‡è¯†ç¬¦
+	uint8_t		data_id;		// æ•°æ®ä¸‹æ ‡
+    uint16_t    tx_period;  	// å®šæ—¶å‘é€é—´éš”(ms)
 } drv_can_t;
 
 
 
 /**
- *	@brief	pwmÇı¶¯
+ *	@brief	pwmé©±åŠ¨
  *	@class	driver
  */
 typedef struct drv_pwm {
@@ -108,7 +108,7 @@ typedef struct drv_pwm {
 } drv_pwm_t;
 
 /**
- *	@brief	uartÇı¶¯
+ *	@brief	uarté©±åŠ¨
  *	@class	driver
  */
 typedef struct drv_uart {

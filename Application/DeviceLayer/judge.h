@@ -1,4 +1,4 @@
-#ifndef __JUDGE_H
+ï»¿#ifndef __JUDGE_H
 #define __JUDGE_H
 
 /* Includes ------------------------------------------------------------------*/
@@ -23,16 +23,16 @@ typedef struct Judge_Org_Info_struct_t
 
 typedef struct
 {
-	int16_t chassis_power_buffer;           //µ×ÅÌ»º´æ¹¦ÂÊ
-	int32_t chassis_out_put_max;            //µ×ÅÌ×î´óÊä³ö
-	uint16_t shooter_cooling_limit;					//»úÆ÷ÈË 17mm Ç¹¿ÚÈÈÁ¿ÉÏÏŞ
-	uint16_t shooter_cooling_heat; 					//»úÆ÷ÈË 17mm Ç¹¿ÚÈÈÁ¿
-	uint8_t car_color;                      //2À¶É« 1ºìÉ«
-	uint8_t hurt_type;                      //ÉËº¦ÖÖÀà
-	uint16_t chassis_power_limit;           //µ×ÅÌ¹¦ÂÊÏŞÖÆ
-	uint16_t shooter_id1_17mm_speed_limit;  //ÉäËÙÉÏÏŞ
-	uint16_t remain_HP;                     //Ê£ÓàÑªÁ¿
-	uint8_t game_status;                    //±ÈÈü×´Ì¬
+	int16_t chassis_power_buffer;           //åº•ç›˜ç¼“å­˜åŠŸç‡
+	int32_t chassis_out_put_max;            //åº•ç›˜æœ€å¤§è¾“å‡º
+	uint16_t shooter_cooling_limit;					//æœºå™¨äºº 17mm æªå£çƒ­é‡ä¸Šé™
+	uint16_t shooter_cooling_heat; 					//æœºå™¨äºº 17mm æªå£çƒ­é‡
+	uint8_t car_color;                      //2è“è‰² 1çº¢è‰²
+	uint8_t hurt_type;                      //ä¼¤å®³ç§ç±»
+	uint16_t chassis_power_limit;           //åº•ç›˜åŠŸç‡é™åˆ¶
+	uint16_t shooter_id1_17mm_speed_limit;  //å°„é€Ÿä¸Šé™
+	uint16_t remain_HP;                     //å‰©ä½™è¡€é‡
+	uint8_t game_status;                    //æ¯”èµ›çŠ¶æ€
 	uint16_t remain_HP_now;
 	uint16_t remain_HP_last;
 	uint8_t rfid;

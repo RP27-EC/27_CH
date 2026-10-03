@@ -1,46 +1,54 @@
-#include "pid.h"
-#include "rp_math.h"
+/* åŒ…å«å¤´æ–‡ä»¶ ------------------------------------------------------------------*/
+#include "pid.h"      /* PIDæ§åˆ¶å™¨å¤´æ–‡ä»¶ï¼ŒåŒ…å«ç»“æ„ä½“å®šä¹‰ */
+#include "rp_math.h"  /* æ•°å­¦åº“ï¼Œæä¾›constrainé™å¹…å® */
+
 
 void single_pid_ctrl(pid_ctrl_t *pid)
 {
-    // ±£´æÎó²îÖµ(ĞèÒªÔÚÍâÃæ×ÔĞĞ¼ÆËãÎó²î)
-//		pid->err = pid->target - pid->measure;
-    // »ı·Ö
+    /* æ³¨æ„ï¼šè¯¯å·®errç”±å¤–éƒ¨è®¡ç®—åè®¾ç½®ï¼Œä¸åœ¨å‡½æ•°å†…è®¡ç®— */
+    /* pid->err = pid->target - pid->measure; */
+
     pid->integral += pid->err;
+
     pid->integral = constrain(pid->integral, -pid->integral_max, +pid->integral_max);
-    // p i d Êä³öÏî¼ÆËã
+
     pid->pout = pid->kp * pid->err;
+
     pid->iout = pid->ki * pid->integral;
+
     pid->dout = pid->kd * (pid->err - pid->last_err);
-		// Î¢·ÖµÍÍ¨ÂË²¨
-		pid->dout = pid->a * pid->dout + (1.f - pid->a) * pid->last_dout;
-    // ÀÛ¼ÓpidÊä³öÖµ
+
+/* å¾®åˆ†é¡¹ä½é€šæ»¤æ³¢ï¼š
+     * dout = a * dout_new + (1 - a) * dout_last
+     * aä¸ºæ»¤æ³¢ç³»æ•° [0, 1] */
+    pid->dout = pid->a * pid->dout + (1.0f - pid->a) * pid->last_dout;
+    pid->last_dout = pid->dout;  /* å…³é”®ï¼šåŠ¡å¿…æ›´æ–°å¹¶ä¿å­˜æœ¬æ¬¡æ»¤æ³¢åçš„å¾®åˆ†å€¼ï¼ */
+
+    /* ===== ç´¯åŠ PIDè¾“å‡º ===== */
     pid->out = pid->pout + pid->iout + pid->dout;
+
+
     pid->out = constrain(pid->out, -pid->out_max, pid->out_max);
-    // ¼ÇÂ¼ÉÏ´ÎÎó²îÖµ
+
+    /* è®°å½•æœ¬æ¬¡è¯¯å·®å€¼ï¼Œä¾›ä¸‹æ¬¡å¾®åˆ†è®¡ç®—ä½¿ç”¨ */
     pid->last_err = pid->err;
 }
 
+
 void pid_err_cal(pid_ctrl_t *pid)
 {
-	pid->err = pid->target - pid->measure;
+    pid->err = pid->target - pid->measure;
 }
 
-/*ÀëÏß×´Ì¬ÏÂ¶Ô»ı·ÖÇåÁã*/
-void pid_clear(pid_ctrl_t *pid)
-{
-	pid->integral = 0;
+/*æ¸…é›¶PIDæ§åˆ¶å™¨çš„ç§¯åˆ†*/
+void pid_clear(pid_ctrl_t *pid) {
+    pid->err = 0.0f;
+    pid->last_err = 0.0f;
+    pid->integral = 0.0f;
+    pid->pout = 0.0f;
+    pid->iout = 0.0f;
+    pid->dout = 0.0f;
+    pid->out = 0.0f;
+    pid->last_dout = 0.0f;
 }
 
-//pidÍâ²¿µ÷ÊÔ´°¿Ú
-void pid_watch(pid_ctrl_t *pid1, pid_ctrl_t *pid2, pid_watch_t * watch)
-{
-	watch->measure1 = pid1->measure;
-	watch->target1 = pid1->target;
-	watch->measure2 = pid2->measure;
-	watch->target2 = pid2->target;
-	watch->out1 = pid1->out;
-	watch->out2 = pid2->out;
-	watch->err1 = pid1->err;
-	watch->err2 = pid2->err;
-}

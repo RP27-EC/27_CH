@@ -1,25 +1,66 @@
+/**
+ ******************************************************************************
+ * @file    drv_spi.c
+ * @brief   SPI外设底层驱动文件
+ ******************************************************************************
+ * @attention
+ *
+ * 该文件提供SPI接口的初始化功能，主要用于与BMI088惯性测量单元（IMU）
+ * 等SPI设备进行通信。通过STM32 HAL库实现SPI硬件接口的配置。
+ *
+ * Copyright 2024 RobotPilots
+ ******************************************************************************
+ */
+
 /* Includes ------------------------------------------------------------------*/
+/* 包含SPI驱动头文件 */
 #include "drv_spi.h"
 
 /* Private macro -------------------------------------------------------------*/
+/* 私有宏定义（当前未使用） */
+
 /* Private function prototypes -----------------------------------------------*/
+/* 私有函数前置声明（当前未使用） */
+
 /* Private typedef -----------------------------------------------------------*/
+/* 私有类型定义（当前未使用） */
+
 /* Private variables ---------------------------------------------------------*/
+/* 私有变量（当前未使用） */
+
 /* Exported variables --------------------------------------------------------*/
+/* 导出变量（当前未使用） */
 
 /* Private functions ---------------------------------------------------------*/
+/* 私有函数（当前未使用） */
+
 /* Exported functions --------------------------------------------------------*/
+
+/**
+ * @brief  SPI2初始化函数
+ * @param  无
+ * @retval 无
+ * @note   初始化SPI2外设，用于连接BMI088 IMU传感器
+ *         初始化完成后将BMI088的片选引脚(CS)拉低，选中该设备
+ *         等待1ms确保设备就绪
+ */
 void SPI2_Init(void)
 {
-	HAL_SPI_Init(&hspi2);
-	HAL_GPIO_WritePin(BMI_CS_GPIO_Port, BMI_CS_Pin, GPIO_PIN_RESET);
-	HAL_Delay(1);
+	HAL_SPI_Init(&hspi2);                                          /* 调用HAL库初始化SPI2外设 */
+	HAL_GPIO_WritePin(BMI_CS_GPIO_Port, BMI_CS_Pin, GPIO_PIN_RESET); /* 拉低BMI088的CS引脚，选中设备 */
+	HAL_Delay(1);                                                   /* 等待1ms，确保SPI设备就绪 */
 }
 
+/**
+ * @brief  SPI1初始化函数（已注释，备用）
+ * @param  无
+ * @retval 无
+ * @note   该函数用于外部BMI088的SPI1接口，当前被注释掉未使用
+ *         与SPI2初始化类似，但CS引脚拉高表示未选中设备
+ */
 //void SPI1_Init(void)
 //{
-//	HAL_SPI_Init(&hspi1);
-//	HAL_GPIO_WritePin(EX_BMI_CS_GPIO_Port, EX_BMI_CS_Pin, GPIO_PIN_SET);
-//	HAL_Delay(1);
+//	HAL_SPI_Init(&hspi1);                                              /* 初始化SPI1外设 */
+//	HAL_GPIO_WritePin(EX_BMI_CS_GPIO_Port, EX_BMI_CS_Pin, GPIO_PIN_SET); /* 拉高外部BMI088的CS引脚 */
+//	HAL_Delay(1);                                                       /* 等待1ms */
 //}
-

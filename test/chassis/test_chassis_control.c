@@ -1,29 +1,69 @@
-#include "chassis.h"
-#include "chassis_motor.h"
+/**
+  ******************************************************************************
+  * @file    test_chassis_control.c
+  * @brief   底盘控制单元测试文件
+  * @details 本文件包含底盘控制逻辑的单元测试：
+  *          - 测试前进时电机方向是否正确
+  *          - 测试小输入是否有死区
+  *          - 测试安全模式是否正确清除状态并发送零命令
+  *          - 测试安全模式后是否能恢复正常控制
+  *          - 测试陀螺仪模式下平移是否跟随云台朝向
+  *          - 测试陀螺仪模式下旋转是否朝向正角度方向
+  * @note   该测试使用桩函数（stub）模拟硬件操作，可在PC上独立运行
+  ******************************************************************************
+  */
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+/* 包含头文件 */
+#include "chassis.h"        /* 底盘控制头文件 */
+#include "chassis_motor.h"  /* 底盘电机控制头文件 */
 
+#include <math.h>     /* 数学函数 */
+#include <stdio.h>    /* 标准输入输出 */
+#include <stdlib.h>   /* 标准库 */
+#include <string.h>   /* 字符串操作（memset） */
+
+/**
+  * @brief 浮点数比较精度阈值
+  */
 #define EPSILON 0.001f
 
-Motor_RM_t Chassis_Motor[4];
-Motor_RM_Group_t Chassis_Motor_Group;
+/**
+  * 全局变量 - 模拟底盘电机和控制结构体
+  * 这些变量在测试中被初始化和验证
+  */
+Motor_RM_t Chassis_Motor[4];           /* 底盘四个电机实例 */
+Motor_RM_Group_t Chassis_Motor_Group;  /* 电机组（用于批量控制） */
 
-static Motor_RM_Ctrl_Info_t motor_ctrl[4];
-static Motor_RM_Tx_Info_t motor_tx[4];
-static pid_ctrl_t speed_pid[4];
-static unsigned int speed_calls[4];
-static unsigned int pid_clear_calls;
-static unsigned int group_send_calls;
+/**
+  * 静态测试辅助变量 - 用于记录函数调用次数和状态
+  */
+static Motor_RM_Ctrl_Info_t motor_ctrl[4];   /* 电机控制信息 */
+static Motor_RM_Tx_Info_t motor_tx[4];       /* 电机发送信息 */
+static pid_ctrl_t speed_pid[4];              /* 速度PID控制器 */
+static unsigned int speed_calls[4];          /* 速度设置函数调用次数 */
+static unsigned int pid_clear_calls;         /* PID清除函数调用次数 */
+static unsigned int group_send_calls;        /* 组发送函数调用次数 */
 
+/**
+  * @brief  测试失败处理函数
+  * @param  message: 错误信息
+  * @details 输出错误信息并退出程序
+  * @retval None
+  */
 static void fail(const char *message)
 {
     fprintf(stderr, "%s\n", message);
     exit(EXIT_FAILURE);
 }
 
+/**
+  * @brief  浮点数近似比较函数
+  * @param  actual: 实际值
+  * @param  expected: 期望值
+  * @param  message: 错误信息
+  * @details 如果实际值与期望值的差值超过阈值，则报告错误并退出
+  * @retval None
+  */
 static void expect_near(float actual, float expected, const char *message)
 {
     if (fabsf(actual - expected) >= EPSILON) {
@@ -33,27 +73,65 @@ static void expect_near(float actual, float expected, const char *message)
     }
 }
 
+/**
+  * @brief  PID控制器清除函数（桩函数）
+  * @param  pid: PID控制器指针
+  * @details 清除PID积分项并记录调用次数
+  * @note   该函数是桩函数，用于替代真实的pid_clear函数
+  * @retval None
+  */
 void pid_clear(pid_ctrl_t *pid)
 {
-    pid->integral = 0.0f;
-    pid_clear_calls++;
+    pid->integral = 0.0f;    /* 清除积分项 */
+    pid_clear_calls++;       /* 递增调用计数 */
 }
 
+/**
+  * @brief  电机速度设置桩函数
+  * @param  motor: 电机指针
+  * @details 该桩函数模拟真实的电机速度设置操作：
+  *          1. 记录调用次数
+  *          2. 将PID目标值赋给电机转矩
+  * @note   该函数用于验证速度PID是否被正确调用
+  * @retval None
+  */
 static void fake_set_speed(Motor_RM_t *motor)
 {
+    /* 计算电机在数组中的索引 */
     const unsigned int index = (unsigned int)(motor - Chassis_Motor);
-    speed_calls[index]++;
+    speed_calls[index]++;   /* 记录该电机的速度设置调用次数 */
+
+    /* 模拟：将PID目标值作为电机转矩输出 */
     motor->tx_info->torque = motor->ctrl->speed_ctrl->target;
 }
 
+/**
+  * @brief  电机组发送桩函数
+  * @param  group: 电机组指针
+  * @details 记录组发送函数的调用次数
+  * @note   该函数用于验证控制更新是否正确触发了电机通信
+  * @retval None
+  */
 static void fake_group_send(Motor_RM_Group_t *group)
 {
-    (void)group;
-    group_send_calls++;
+    (void)group;            /* 忽略未使用的参数 */
+    group_send_calls++;     /* 递增调用计数 */
 }
 
+/**
+  * @brief  测试夹具重置函数
+  * @details 在每个测试用例执行前重置所有测试状态：
+  *          1. 清零所有电机实例
+  *          2. 清零所有控制信息和发送信息
+  *          3. 重置PID控制器
+  *          4. 清零所有调用计数
+  *          5. 重新建立结构体之间的关联
+  *          6. 设置桩函数指针
+  * @retval None
+  */
 static void reset_fixture(void)
 {
+    /* 清零所有数据结构 */
     memset(Chassis_Motor, 0, sizeof(Chassis_Motor));
     memset(&Chassis_Motor_Group, 0, sizeof(Chassis_Motor_Group));
     memset(motor_ctrl, 0, sizeof(motor_ctrl));
@@ -63,23 +141,36 @@ static void reset_fixture(void)
     pid_clear_calls = 0;
     group_send_calls = 0;
 
+    /* 建立结构体之间的关联 */
     for (unsigned int i = 0; i < 4; ++i) {
-        motor_ctrl[i].speed_ctrl = &speed_pid[i];
-        Chassis_Motor[i].ctrl = &motor_ctrl[i];
-        Chassis_Motor[i].tx_info = &motor_tx[i];
-        Chassis_Motor[i].single_set_speed = fake_set_speed;
-        Chassis_Motor_Group.motor[i] = &Chassis_Motor[i];
+        motor_ctrl[i].speed_ctrl = &speed_pid[i];      /* 控制信息指向PID */
+        Chassis_Motor[i].ctrl = &motor_ctrl[i];        /* 电机指向控制信息 */
+        Chassis_Motor[i].tx_info = &motor_tx[i];       /* 电机指向发送信息 */
+        Chassis_Motor[i].single_set_speed = fake_set_speed;  /* 设置速度桩函数 */
+        Chassis_Motor_Group.motor[i] = &Chassis_Motor[i];    /* 电机组指向电机 */
     }
-    Chassis_Motor_Group.group_set_torque = fake_group_send;
+    Chassis_Motor_Group.group_set_torque = fake_group_send;   /* 设置发送桩函数 */
 }
 
+/**
+  * @brief  测试1：前进时电机方向是否正确
+  * @details 验证底盘前进时，四个电机的转速符号是否正确：
+  *         - 左前轮：正转（6000）
+  *         - 右前轮：反转（-6000）
+  *         - 左后轮：正转（6000）
+  *         - 右后轮：反转（-6000）
+  * @note   麦轮底盘前进时，左右轮转向相反
+  * @retval None
+  */
 static void test_forward_applies_motor_directions(void)
 {
     const float expected[4] = {6000.0f, -6000.0f, 6000.0f, -6000.0f};
     reset_fixture();
 
+    /* 调用底盘更新函数：前进（vx=660） */
     Chassis_Update(660, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
+    /* 验证每个电机的PID目标值 */
     for (unsigned int i = 0; i < 4; ++i) {
         expect_near(speed_pid[i].target, expected[i], "forward target");
         if (speed_calls[i] != 1) fail("speed controller must run once");
@@ -87,19 +178,41 @@ static void test_forward_applies_motor_directions(void)
     if (group_send_calls != 1) fail("normal update must send exactly once");
 }
 
+/**
+  * @brief  测试2：小输入是否有死区
+  * @details 验证非常小的输入值（1个计数）不会被死区过滤掉
+  * @note   死区通常用于过滤噪声，但不应过滤有效的小信号
+  * @retval None
+  */
 static void test_small_input_has_no_deadzone(void)
 {
     reset_fixture();
+
+    /* 调用底盘更新函数：极小的前进输入 */
     Chassis_Update(1, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
+    /* 验证PID目标值不为零 */
     if (fabsf(speed_pid[0].target) < EPSILON) {
         fail("one-count input was incorrectly removed by a deadzone");
     }
 }
 
+/**
+  * @brief  测试3：安全模式是否正确清除状态并发送零命令
+  * @details 验证安全模式（failsafe）触发时：
+  *          1. 所有PID状态被清除
+  *          2. 电机发送信息被清除
+  *          3. PID积分被清除
+  *          4. 发送一个零转矩命令
+  *          5. 不执行速度PID计算
+  * @note   安全模式用于紧急停止，确保系统安全
+  * @retval None
+  */
 static void test_failsafe_clears_state_and_sends_zero_once(void)
 {
     reset_fixture();
+
+    /* 预设非零状态，用于验证清除效果 */
     for (unsigned int i = 0; i < 4; ++i) {
         speed_pid[i].target = 1.0f;
         speed_pid[i].measure = 2.0f;
@@ -116,8 +229,10 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
         motor_tx[i].torque_current_raw = 13;
     }
 
+    /* 触发安全模式 */
     Chassis_Update(660, 660, 660, 0.0f, CAR_MODE_GYRO, true);
 
+    /* 验证所有状态被清除 */
     for (unsigned int i = 0; i < 4; ++i) {
         const float *fields[] = {
             &speed_pid[i].target, &speed_pid[i].measure, &speed_pid[i].err,
@@ -136,54 +251,101 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
     if (group_send_calls != 1) fail("failsafe must send exactly one zero frame");
 }
 
+/**
+  * @brief  测试4：安全模式后是否能恢复正常控制
+  * @details 验证从安全模式恢复后，底盘控制能正常工作
+  * @retval None
+  */
 static void test_control_recovers_after_failsafe(void)
 {
     reset_fixture();
-    Chassis_Update(0, 0, 0, 0.0f, CAR_MODE_GYRO, true);
-    group_send_calls = 0;
 
+    /* 先触发安全模式 */
+    Chassis_Update(0, 0, 0, 0.0f, CAR_MODE_GYRO, true);
+    group_send_calls = 0;  /* 重置发送计数 */
+
+    /* 恢复正常控制 */
     Chassis_Update(330, 0, 0, 0.0f, CAR_MODE_MECH, false);
 
+    /* 验证恢复后的控制输出 */
     expect_near(speed_pid[0].target, 3000.0f, "recovery target");
     if (speed_calls[0] != 1 || group_send_calls != 1) {
         fail("normal control did not resume after failsafe");
     }
 }
 
+/**
+  * @brief  测试5：陀螺仪模式下平移是否跟随云台朝向
+  * @details 验证在陀螺仪模式下，底盘平移方向会根据云台朝向自动调整
+  * @note   云台朝向为90度（半圆周）时，前进方向变为向左
+  * @retval None
+  */
 static void test_gyro_translation_follows_gimbal_heading(void)
 {
-    const float half_pi = 1.57079632679f;
+    const float half_pi = 1.57079632679f;  /* 90度（弧度） */
     reset_fixture();
 
+    /* 云台朝向90度时前进 */
     Chassis_Update(660, 0, 0, half_pi, CAR_MODE_GYRO, false);
 
+    /* 验证车轮转速（此时前进变为向左平移） */
     expect_near(speed_pid[0].target, -6000.0f, "gyro FL target");
     expect_near(speed_pid[1].target, -6000.0f, "gyro FR target");
-    expect_near(speed_pid[2].target, 2000.0f, "gyro BL target");
-    expect_near(speed_pid[3].target, 2000.0f, "gyro BR target");
+    expect_near(speed_pid[2].target, 0.0f, "gyro BL target");
+    expect_near(speed_pid[3].target, 0.0f, "gyro BR target");
 }
 
+/**
+  * @brief  测试6：陀螺仪模式下旋转是否朝向正角度方向
+  * @details 验证在陀螺仪模式下，底盘旋转方向与云台朝向角度一致
+  * @note   正角度应该导致正方向的旋转（所有轮子负转速）
+  * @retval None
+  */
 static void test_gyro_follow_rotates_toward_positive_angle(void)
 {
-    const float half_pi = 1.57079632679f;
+    const float half_pi = 1.57079632679f;  /* 90度（弧度） */
     reset_fixture();
 
+    /* 云台朝向90度时旋转 */
     Chassis_Update(0, 0, 0, half_pi, CAR_MODE_GYRO, false);
 
+    /* 验证旋转方向 - 正角度应该导致负转速（顺时针） */
     if (speed_pid[0].target >= 0.0f || speed_pid[1].target >= 0.0f ||
         speed_pid[2].target >= 0.0f || speed_pid[3].target >= 0.0f) {
         fail("positive gimbal angle must command positive chassis rotation");
     }
 }
 
+static void test_follow_deadzone_gain_and_limit(void)
+{
+    expect_near(Chassis_Calc_Follow_Wz_Norm(0.020f), 0.0f, "follow deadzone");
+    expect_near(Chassis_Calc_Follow_Wz_Norm(0.026f), 0.0f, "follow continuity");
+    expect_near(Chassis_Calc_Follow_Wz_Norm(0.5235988f), 0.398079f, "follow 30 degrees");
+    expect_near(Chassis_Calc_Follow_Wz_Norm(-0.5235988f), -0.398079f, "follow negative");
+    expect_near(Chassis_Calc_Follow_Wz_Norm(3.14159f), 1.0f, "follow positive limit");
+    expect_near(Chassis_Calc_Follow_Wz_Norm(-3.14159f), -1.0f, "follow negative limit");
+}
+
+/**
+  * @brief  主函数 - 测试入口
+  * @details 依次执行所有6个测试用例：
+  *          1. 前进电机方向测试
+  *          2. 小输入死区测试
+  *          3. 安全模式清除测试
+  *          4. 安全模式恢复测试
+  *          5. 陀螺仪平移测试
+  *          6. 陀螺仪旋转测试
+  * @retval int 返回EXIT_SUCCESS表示所有测试通过
+  */
 int main(void)
 {
-    test_forward_applies_motor_directions();
-    test_small_input_has_no_deadzone();
-    test_failsafe_clears_state_and_sends_zero_once();
-    test_control_recovers_after_failsafe();
-    test_gyro_translation_follows_gimbal_heading();
-    test_gyro_follow_rotates_toward_positive_angle();
-    puts("6 chassis control tests passed");
+    test_forward_applies_motor_directions();       /* 测试1 */
+    test_small_input_has_no_deadzone();            /* 测试2 */
+    test_failsafe_clears_state_and_sends_zero_once();  /* 测试3 */
+    test_control_recovers_after_failsafe();        /* 测试4 */
+    test_gyro_translation_follows_gimbal_heading(); /* 测试5 */
+    test_gyro_follow_rotates_toward_positive_angle(); /* 测试6 */
+    test_follow_deadzone_gain_and_limit();          /* 测试7 */
+    puts("7 chassis control tests passed");
     return EXIT_SUCCESS;
 }
