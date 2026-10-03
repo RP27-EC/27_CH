@@ -73,7 +73,7 @@ void Board_Tx_D1(void)
     tx_data[4] = board_tx_info.pitch_enable;
     tx_data[5] = board_tx_info.is_fric_on; /* 摩擦轮开启标志，供上层板摩擦轮 */
 
-    /* tx_data[6..7] 预留给后续自瞄等指令 */
+    /* tx_data[6..7] 预留给后续扩展 */
 
     CAN_SendData(&hfdcan2, 0xD1, tx_data);
 }

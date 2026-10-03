@@ -20,12 +20,6 @@ typedef enum {
     CAR_MODE_SPIN,          /* 小陀螺自旋模式 */
 } CarMode_e;
 
-/* 自瞄状态枚举 */
-typedef enum {
-    VISION_OFF = 0,         /* 关闭自瞄（纯手打） */
-    VISION_AUTO_AIM,        /* 开启自瞄 */
-} VisionMode_e;
-
 /* 复位状态枚举 */
 typedef enum {
     RESET_PENDING = 0,      /* 正在复位 */
@@ -37,7 +31,6 @@ typedef struct {
     bool is_shoot_system_on;    /* 摩擦轮开启标志 */
     bool is_single_shoot_cmd;   /* 单发打弹脉冲指令 */
     bool is_continuous_shoot;   /* 连发标志（拨弹持续转动） */
-    VisionMode_e vision_mode;   /* 视觉自瞄模式 */
 } CarFlags_t;
 
 /* 整车总控对象 */
