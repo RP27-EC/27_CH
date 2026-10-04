@@ -43,9 +43,6 @@
 #define SHOOT_RECOIL_TIMEOUT_TICKS (150U)
 #define SHOOT_RECOIL_ARRIVE_ERR   (3000.0f)  /* 反转到位判据(编码器计数) */
 
-/* 摩擦轮就绪兜底：250×2ms = 500ms，上层板未回传状态帧时按延时放行 */
-#define SHOOT_SPINUP_TIMEOUT_TICKS (250U)
-
 /**
   * @brief  拨弹电机对象
   * @details RM3508，type=_3508_Single，控制约定与底盘轮子一致：

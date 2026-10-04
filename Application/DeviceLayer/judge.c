@@ -161,7 +161,6 @@ void judge_update(uint16_t id, uint8_t *rxBuf)
 			memcpy(&My_Judge.org_info->power_heat_data, rxBuf, LEN_power_heat_data);
 			My_Judge.status->offline_cnt = 0;
 			My_Judge.status->status = DEV_ONLINE;
-			cap_send_2E();  /* 收到功率数据后触发超级电容数据发送 */
 			break;
 
 		case ID_game_robot_state:

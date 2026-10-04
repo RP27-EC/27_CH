@@ -49,25 +49,28 @@
 #define    KEY_PRESSED_OFFSET_V        ((uint16_t)0x01<<14)
 #define    KEY_PRESSED_OFFSET_B        ((uint16_t)0x01<<15)
 
-/* 检测按键长按时间 */
-#define MOUSE_BTN_L_CNT_MAX     500         //ms 鼠标左键
-#define MOUSE_BTN_R_CNT_MAX     500         //ms 鼠标右键
-#define KEY_Q_CNT_MAX           500         //ms Q键
-#define KEY_W_CNT_MAX           1800		//ms W键
-#define KEY_E_CNT_MAX           500         //ms E键
-#define KEY_R_CNT_MAX           500         //ms R键
-#define KEY_A_CNT_MAX           1800	    //ms A键
-#define KEY_S_CNT_MAX           1800	    //ms S键
-#define KEY_D_CNT_MAX           1800	    //ms D键
-#define KEY_F_CNT_MAX           500         //ms F键
-#define KEY_G_CNT_MAX           500         //ms G键
-#define KEY_Z_CNT_MAX           500         //ms Z键
-#define KEY_X_CNT_MAX           500         //ms X键
-#define KEY_C_CNT_MAX           500         //ms C键
-#define KEY_V_CNT_MAX           500         //ms V键
-#define KEY_B_CNT_MAX           500         //ms B键
-#define KEY_SHIFT_CNT_MAX       500         //ms SHIFT键
-#define KEY_CTRL_CNT_MAX        1500        //ms CTRL键
+/* 按键长按判定阈值。
+   单位是 2ms 控制环 tick，不是 ms —— keyboard_update() 在 control_task 的 2ms 环里流转。
+   WASD 的 cnt_max 同时是「按住渐进加速」的斜坡满量程：速度比 = cnt / cnt_max，
+   按满 400 tick（0.8s）到满速，松手 cnt 立刻清零。 */
+#define MOUSE_BTN_L_CNT_MAX     500         //tick 鼠标左键
+#define MOUSE_BTN_R_CNT_MAX     500         //tick 鼠标右键
+#define KEY_Q_CNT_MAX           500         //tick Q键
+#define KEY_W_CNT_MAX           400         //tick W键（渐进加速斜坡）
+#define KEY_E_CNT_MAX           500         //tick E键
+#define KEY_R_CNT_MAX           500         //tick R键
+#define KEY_A_CNT_MAX           400         //tick A键（渐进加速斜坡）
+#define KEY_S_CNT_MAX           400         //tick S键（渐进加速斜坡）
+#define KEY_D_CNT_MAX           400         //tick D键（渐进加速斜坡）
+#define KEY_F_CNT_MAX           500         //tick F键
+#define KEY_G_CNT_MAX           500         //tick G键
+#define KEY_Z_CNT_MAX           500         //tick Z键
+#define KEY_X_CNT_MAX           500         //tick X键
+#define KEY_C_CNT_MAX           500         //tick C键
+#define KEY_V_CNT_MAX           500         //tick V键
+#define KEY_B_CNT_MAX           500         //tick B键
+#define KEY_SHIFT_CNT_MAX       500         //tick SHIFT键
+#define KEY_CTRL_CNT_MAX        1500        //tick CTRL键
 
 /* 平滑滤波次数 */
 #define REMOTE_SMOOTH_TIMES     10          //鼠标平滑滤波次数
@@ -190,7 +193,12 @@ typedef struct rc_sensor_info_struct {
   key_board_info_t        Shift;                //按键Shift
   key_board_info_t        Ctrl;                 //按键Ctrl
 	uint16_t								key_v;
-	
+
+	/* DBUS 帧序号：USART5 每解析完一帧自增。
+	   鼠标位移是「一帧一个采样」，而 Gimbal_Update 跑 2ms，
+	   消费侧比对这个序号就能保证一帧只累加一次，不会把同一采样算 ~7 遍 */
+	uint16_t                frame_seq;
+
 	int16_t		offline_cnt;
 	int16_t		offline_max_cnt;
 } rc_sensor_info_t;

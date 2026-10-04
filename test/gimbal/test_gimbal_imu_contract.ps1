@@ -32,8 +32,9 @@ if (-not $offlineBranch.Success) {
 }
 
 $body = $offlineBranch.Groups['body'].Value
-Assert-Match $body 'pid_clear\(&gimbal->yaw\.angle_pid\)' 'offline branch must clear the angle PID'
-Assert-Match $body 'pid_clear\(&gimbal->yaw\.speed_pid\)' 'offline branch must clear the speed PID'
+# Yaw 双环四份 PID 状态由 ClearYawPids() 统一清（mec_/gyro_ x angle_/speed_），
+# 断言走这个封装而不是旧的 pid_clear(&gimbal->yaw.angle_pid) 单环写法。
+Assert-Match $body 'ClearYawPids\s*\(\s*gimbal\s*\)' 'offline branch must clear the yaw PID state'
 Assert-Match $body 'gimbal->yaw\.give_current\s*=\s*0' 'offline branch must clear commanded current'
 Assert-Match $body 'KT_Yaw_SendIq\(0\)' 'offline branch must command zero KT current'
 Assert-Match $body 'return\s*;' 'offline branch must stop PID calculation'
@@ -47,8 +48,7 @@ if (-not $gyroTransition.Success) {
 
 $transitionBody = $gyroTransition.Groups['body'].Value
 Assert-Match $transitionBody 'gimbal->yaw\.target_imu_angle\s*=\s*gimbal->yaw\.imu_angle' 'gyro transition must synchronize the IMU target angle'
-Assert-Match $transitionBody 'pid_clear\(&gimbal->yaw\.angle_pid\)' 'gyro transition must clear the angle PID state'
-Assert-Match $transitionBody 'pid_clear\(&gimbal->yaw\.speed_pid\)' 'gyro transition must clear the speed PID state'
+Assert-Match $transitionBody 'ClearYawPids\s*\(\s*gimbal\s*\)' 'gyro transition must clear the yaw PID state'
 
 Assert-Match $control 'hero_gimbal\.yaw\.feedback_mec_angle' 'chassis following must use feedback_mec_angle'
 Assert-NotMatch $control 'hero_gimbal\.yaw\.feedback_angle' 'undefined feedback_angle must not be referenced'

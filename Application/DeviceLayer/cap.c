@@ -47,8 +47,14 @@ cap_t cap =
   */
 void Cap_Init(cap_t* my_cap)
 {
-	/* 离线计数最大值设为0，表示不进行离线检测（电容板可能无心跳机制） */
-	my_cap->status->offline_cnt_max = 0;
+	/* 离线阈值：300 × 1ms = 300ms 收不到 0x211 判离线（monitor_task 周期 1ms） */
+	my_cap->status->offline_cnt_max = CAP_OFFLINE_CNT_MAX;
+
+	/* 上电默认离线：收过 0x211 才转在线
+	   注意 dev_work_state_t 里 DEV_ONLINE=0，全局变量默认值就是"假在线"，
+	   必须显式置离线，否则没接超电板时功率放宽逻辑会被假电压骗开 */
+	my_cap->status->offline_cnt = my_cap->status->offline_cnt_max;
+	my_cap->status->status = DEV_OFFLINE;
 
 	/* 绑定电容数据更新回调函数，当收到CAN数据时调用 */
 	my_cap->rx = cap_update;
@@ -61,24 +67,17 @@ void Cap_Init(cap_t* my_cap)
   * @brief  电容心跳检测函数
   * @param  my_cap: 电容对象指针
   * @retval None
-  * @details 每次调用时离线计数器加1，当计数超过最大值时判定设备离线，
-  *          否则判定设备在线。用于检测电容板通信是否正常。
+  * @details 离线计数器递增（收到 0x211 时由 cap_update 清零），
+  *          计数达到阈值判离线，否则判在线。
   */
 static void Cap_HeartBeat(cap_t* my_cap)
 {
-	/* 离线计数器递增 */
-	my_cap->status->offline_cnt ++;
+	/* 离线计数器递增并钳位，防止长时间无数据后溢出回绕 */
+	if (my_cap->status->offline_cnt < my_cap->status->offline_cnt_max) {
+		my_cap->status->offline_cnt++;
+	}
 
-	/* 判断是否超过离线阈值 */
-	if(my_cap->status->offline_cnt >= my_cap->status->offline_cnt_max)
-	{
-		/* 超过阈值，将计数器钳位在最大值，标记设备离线 */
-		my_cap->status->offline_cnt = my_cap->status->offline_cnt_max;
-		my_cap->status->status = DEV_OFFLINE;
-	}
-	else
-	{
-		/* 未超过阈值，标记设备在线 */
-		my_cap->status->status = DEV_ONLINE;
-	}
+	/* 达到阈值判离线，否则在线 */
+	my_cap->status->status =
+		(my_cap->status->offline_cnt >= my_cap->status->offline_cnt_max) ? DEV_OFFLINE : DEV_ONLINE;
 }

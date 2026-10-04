@@ -352,4 +352,7 @@ void USART5_rxDataHandler(uint8_t *rxBuf)
 
     /* 对鼠标速度进行滑动均值滤波 */
     rc_interrupt_update(&rc_sensor);
+
+    /* 帧序号自增：消费侧（云台鼠标瞄准）靠它做「一帧只累加一次」的闸门 */
+    rc_sensor.info->frame_seq++;
 }

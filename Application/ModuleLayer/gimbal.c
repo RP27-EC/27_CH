@@ -156,19 +156,103 @@ static void Gimbal_Mech_Update(Gimbal_t *gimbal) {
 }
 
 
+/* ========================================================================= */
+/*                          2.1 键鼠瞄准（鼠标 + Ctrl 微调）                  */
+/* ========================================================================= */
+
+/**
+  * @brief  当前 Ctrl 微调步距
+  * @details Ctrl+Shift 同按走大步距（0.2°），只按 Ctrl 走小步距（0.05°）。
+  *          Shift 的超电放电电平语义不受影响，这里只是把同一个键当和弦用。
+  */
+static float Gimbal_Trim_Step(void) {
+    return (rc_sensor.info->Shift.value != 0U) ? KEY_TRIM_STEP_LARGE : KEY_TRIM_STEP_SMALL;
+}
+
+/**
+  * @brief  键鼠模式下的 Yaw 目标角更新
+  * @details 两件事：
+  *          1. 鼠标横向位移 -> 空间目标角增量。鼠标是「一帧一个采样」，
+  *             而本函数跑 2ms，必须用 frame_seq 做「一帧只累加一次」的闸门，
+  *             否则同一个采样会被算 ~7 遍（DBUS 帧周期约 14ms）。
+  *          2. Ctrl 按住时 WASD 边沿改为步进微调，不再给底盘平移
+  *             （底盘那侧由 Car_Chassis_Channel_Get 把平移置零，叫「替换」语义）。
+  *
+  *          注意：本函数只在 GYRO 模式下被调用。MECH 模式 Yaw 锁死在底盘正前方
+  *          （Gimbal_Mech_Update），键鼠瞄准在 MECH 下不生效，这是跟随安全行为，不是漏做。
+  *
+  * @param  gimbal : 云台对象指针
+  * @retval None
+  */
+static void Gimbal_Key_Yaw_Update(Gimbal_t *gimbal) {
+    static uint16_t last_seq = 0;   /* 上次消费过的 DBUS 帧序号 */
+
+    /* 鼠标横向：鼠标右移 = 瞄准向右 = 目标角减小 */
+    if (rc_sensor.info->frame_seq != last_seq) {
+        last_seq = rc_sensor.info->frame_seq;
+        gimbal->yaw.target_imu_angle -= rc_sensor.info->mouse_x * MOUSE_YAW_SENS;
+    }
+
+    /* Ctrl + A/D：A = 向左瞄 = 目标角增大（与鼠标右移相反） */
+    if (rc_sensor.info->Ctrl.value != 0U) {
+        const float step = Gimbal_Trim_Step();
+        if (rc_sensor.info->A.status == release_to_press) {
+            gimbal->yaw.target_imu_angle += step;
+        }
+        if (rc_sensor.info->D.status == release_to_press) {
+            gimbal->yaw.target_imu_angle -= step;
+        }
+    }
+}
+
+/**
+  * @brief  键鼠模式下的 Pitch 目标角更新
+  * @details 鼠标纵向位移累加（同样吃 frame_seq 闸门）+ Ctrl+W/S 步进微调。
+  *          软限位钳位由调用方 Gimbal_Pitch_Update 统一做，这里只管累加。
+  *
+  * @param  gimbal : 云台对象指针
+  * @retval None
+  */
+static void Gimbal_Key_Pitch_Update(Gimbal_t *gimbal) {
+    static uint16_t last_seq = 0;   /* 上次消费过的 DBUS 帧序号 */
+
+    /* 鼠标纵向：鼠标上移 = 抬头 = 目标角增大 */
+    if (rc_sensor.info->frame_seq != last_seq) {
+        last_seq = rc_sensor.info->frame_seq;
+        gimbal->pitch.target_mec_angle += rc_sensor.info->mouse_y * MOUSE_PITCH_SENS;
+    }
+
+    /* Ctrl + W/S：W = 抬头 = 目标角增大 */
+    if (rc_sensor.info->Ctrl.value != 0U) {
+        const float step = Gimbal_Trim_Step();
+        if (rc_sensor.info->W.status == release_to_press) {
+            gimbal->pitch.target_mec_angle += step;
+        }
+        if (rc_sensor.info->S.status == release_to_press) {
+            gimbal->pitch.target_mec_angle -= step;
+        }
+    }
+}
+
+
 static void Gimbal_Gyro_Update(Gimbal_t *gimbal) {
     gimbal->yaw.pid_mode = GIMBAL_PID_GYRO;  /* 切换到陀螺仪模式PID */
 
-    //yaw摇杆映射
-    float rc_yaw_input = -(float)rc_sensor.info->ch0;
+    if (hero_car.input_src == INPUT_SRC_KEY) {
+        /* 键鼠：鼠标瞄准 + Ctrl 微调 */
+        Gimbal_Key_Yaw_Update(gimbal);
+    } else {
+        //yaw摇杆映射
+        float rc_yaw_input = -(float)rc_sensor.info->ch0;
 
-    //死区 
-    if (fabsf(rc_yaw_input) < RC_YAW_GYRO_DEADZONE) {
-        rc_yaw_input = 0.0f;
+        //死区
+        if (fabsf(rc_yaw_input) < RC_YAW_GYRO_DEADZONE) {
+            rc_yaw_input = 0.0f;
+        }
+
+        //rad
+        gimbal->yaw.target_imu_angle += rc_yaw_input * gimbal->yaw.gyro_sensitivity;
     }
-
-    //rad
-    gimbal->yaw.target_imu_angle += rc_yaw_input * gimbal->yaw.gyro_sensitivity;
 
     /* 角度规范化，防止目标角溢出 */
     gimbal->yaw.target_imu_angle = Angle_Normalize_PI(gimbal->yaw.target_imu_angle);
@@ -185,20 +269,25 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     }
 
 
-    /* 遥控器与编码器坐标统一：摇杆向上产生正目标，向下产生负目标。 */
-    float rc_pitch_input = (float)rc_sensor.info->ch1;
+    if (hero_car.input_src == INPUT_SRC_KEY) {
+        /* 键鼠：鼠标瞄准 + Ctrl 微调 */
+        Gimbal_Key_Pitch_Update(gimbal);
+    } else {
+        /* 遥控器与编码器坐标统一：摇杆向上产生正目标，向下产生负目标。 */
+        float rc_pitch_input = (float)rc_sensor.info->ch1;
 
-    /*摇杆中位死区 */
-    /* 右摇杆上下(ch1)在死区内不改变目标，避免中位漂移持续累加。 */
-    if (fabsf(rc_pitch_input) <= RC_PITCH_MECH_DEADZONE) {
-        rc_pitch_input = 0.0f;
+        /*摇杆中位死区 */
+        /* 右摇杆上下(ch1)在死区内不改变目标，避免中位漂移持续累加。 */
+        if (fabsf(rc_pitch_input) <= RC_PITCH_MECH_DEADZONE) {
+            rc_pitch_input = 0.0f;
+        }
+
+        /* 积分累加，灵敏度为 RC_PITCH_MECH_SENSITIVITY */
+        gimbal->pitch.target_mec_angle += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
     }
 
-    /* 积分累加，灵敏度为 RC_PITCH_MECH_SENSITIVITY */
-    gimbal->pitch.target_mec_angle += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
 
-
-    /* 这里只限制遥控器累加出来的目标角，不用反馈角改写目标。 */
+    /* 这里只限制遥控器/键鼠累加出来的目标角，不用反馈角改写目标。 */
     if (gimbal->pitch.target_mec_angle > gimbal->pitch.max_limit) {
         gimbal->pitch.target_mec_angle = gimbal->pitch.max_limit;
     } else if (gimbal->pitch.target_mec_angle < gimbal->pitch.min_limit) {

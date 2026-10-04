@@ -34,7 +34,8 @@ foreach ($id in 'LF', 'RF', 'LB', 'RB') {
 }
 Assert-Match $rmHeader 'CAN_HandleTypeDef\s+\*hcan' 'RM motor group handle is missing'
 Assert-Match $controlTask 'Chassis_Init\s*\(\s*\)' 'control task does not initialize the chassis'
-Assert-Match $controlTask 'Chassis_Update\s*\(\s*rc_sensor\.info->ch3[\s\S]*?rc_sensor\.info->ch2[\s\S]*?rc_sensor\.info->ch0[\s\S]*?hero_gimbal\.yaw\.feedback_mec_angle[\s\S]*?hero_car\.mode[\s\S]*?chassis_failsafe\s*\)' 'control task channel mapping is incorrect'
+Assert-Match $controlTask 'Car_Chassis_Channel_Get\s*\(\s*&hero_car\s*,\s*&chassis_fwd\s*,\s*&chassis_lat\s*,\s*&chassis_rot\s*\)' 'control task does not route chassis channels through the input-source getter'
+Assert-Match $controlTask 'Chassis_Update\s*\(\s*chassis_fwd[\s\S]*?chassis_lat[\s\S]*?chassis_rot[\s\S]*?hero_gimbal\.yaw\.feedback_mec_angle[\s\S]*?hero_car\.mode[\s\S]*?chassis_failsafe\s*\)' 'control task channel mapping is incorrect'
 Assert-Match $controlTask 'hero_car\.mode\s*==\s*CAR_MODE_SLEEP' 'control task does not fail safe in sleep mode'
 Assert-Match $controlTask 'rc_sensor\.work_state\s*!=\s*DEV_ONLINE' 'control task does not fail safe on remote offline'
 Assert-Match $controlTask 'void\s+StartCtrlTask\s*\(\s*void\s*\*\s*argument\s*\)' 'control task signature is not CMSIS-RTOS2 compatible'

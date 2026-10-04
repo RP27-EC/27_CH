@@ -95,16 +95,22 @@ void CAN2_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 }
 
 /**
-  * @brief  CAN3接收中断分发函数（预留）
-  * @details CAN3当前预留用于超级电容模块通信，暂未实现接收逻辑。
-  *          使用(void)强制消除编译器未使用参数的警告。
+  * @brief  CAN3接收中断分发函数
+  * @details CAN3挂载超级电容模块，按帧ID分发：
+  *          - 0x211：超电板状态帧（功率 / 电容电压 / 电容电流 / 放电能力）
   *
-  * @param  rxId  : 接收到的CAN帧ID（未使用）
-  * @param  rxBuf : CAN接收缓冲区（未使用）
+  * @param  rxId  : 接收到的CAN帧ID
+  * @param  rxBuf : CAN接收缓冲区，包含8字节数据
   * @retval None
   */
 void CAN3_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
 {
-//    (void)rxId;    /* 消除未使用参数警告 */
-//    (void)rxBuf;   /* 消除未使用参数警告 */
+    switch (rxId) {
+        case CAP_RX_ID: // 0x211 —— 超电板状态帧
+            cap.rx(&cap, rxBuf);
+            break;
+
+        default:
+            break;
+    }
 }

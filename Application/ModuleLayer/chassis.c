@@ -13,6 +13,8 @@
 #include "chassis_kinematics.h"  /* 麦轮运动学解算模块 */
 #include "chassis_motor.h"       /* 底盘电机驱动模块 */
 #include "pid.h"                 /* PID控制器模块 */
+#include "power_model.h"         /* 功率模型与功率预算 */
+#include "cap.h"                 /* 超级电容（放宽功率用） */
 
 #include <math.h>
 
@@ -136,6 +138,71 @@ void Chassis_Init(void)
 
 
 /**
+  * @brief  底盘功率限制
+  * @details 挂在「PID 算完之后、CAN 发出之前」这道缝上：
+  *          1. 用二次功率模型把四轮的「电流指令 + 当前转速」折算成功率
+  *          2. 取功率预算：训练/比赛共用 Power_Budget_Get()，超电放电中再放宽
+  *          3. 预测功率超预算时，按比例压低每轮的目标功率，再反解回电流
+  *
+  *          不做缓冲能量的保守兜底（例程里 buffer<25 就把输出乘 0 的那种）：
+  *          训练没有裁判系统，缓冲能量恒为 0，那条路会直接把底盘打死。
+  *          这里只按「瓦特预算」一层限制，够用且不会误伤。
+  */
+static void Chassis_Power_Limit_Apply(void)
+{
+    float wheel_power[CHASSIS_WHEEL_COUNT];
+    float power_fit = 0.0f;
+    float max_power;
+    float power_rate;
+    unsigned int i;
+
+    /* 1. 预测四轮功率（只累加消耗功率，制动回馈不占预算） */
+    for (i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
+        wheel_power[i] = Power_Predict(Chassis_Motor[i].tx_info->torque,
+                                       (float)Chassis_Motor[i].rx_info->encoder_speed);
+        if (wheel_power[i] > 0.0f) {
+            power_fit += wheel_power[i];
+        }
+    }
+
+    /* 2. 取功率预算 */
+    max_power = Power_Budget_Get();
+
+    /* 超电放电中且电压够，才放宽功率；没接超电板 / 电压不足一律不放宽 */
+    if (cap.Y_O_N != 0U &&
+        cap.status->status == DEV_ONLINE &&
+        cap.info->cap_Ucr > CAP_RELAX_V_TH) {
+        max_power += (cap.info->cap_Ucr - CAP_RELAX_V_TH) * CAP_RELAX_K + CAP_RELAX_BASE_W;
+    }
+
+    /* 放宽封顶：电容再满也不超过 CHASSIS_POWER_BUDGET_MAX_W */
+    if (max_power > CHASSIS_POWER_BUDGET_MAX_W) {
+        max_power = CHASSIS_POWER_BUDGET_MAX_W;
+    }
+
+    /* 3. 没超预算就不干预 PID 的输出 */
+    if (power_fit <= 0.0f || power_fit <= max_power) {
+        return;
+    }
+
+    /* 4. 按比例压低每轮目标功率，再反解回电流 */
+    power_rate = max_power / power_fit;
+
+    for (i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
+        float solved = Power_Solve_Current(wheel_power[i] * power_rate,
+                                           (float)Chassis_Motor[i].rx_info->encoder_speed,
+                                           Chassis_Motor[i].tx_info->torque);
+
+        /* 只减不增：限流器永远不该比 PID 更激进 */
+        if (fabsf(solved) > fabsf(Chassis_Motor[i].tx_info->torque)) {
+            solved = Chassis_Motor[i].tx_info->torque;
+        }
+        Chassis_Motor[i].tx_info->torque = solved;
+    }
+}
+
+
+/**
   * @brief  底盘控制更新函数
   * @details 根据遥控器输入的三轴运动指令，通过麦轮运动学解算，
   *          计算并设置四个电机的目标转速，实现底盘全向运动。
@@ -245,6 +312,9 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
 
         Chassis_Motor[i].single_set_speed(&Chassis_Motor[i]);
     }
+
+    /* PID 算完、CAN 发出之前：按功率预算重新约束四轮电流 */
+    Chassis_Power_Limit_Apply();
 
     /* 一次CAN帧发送4个电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);

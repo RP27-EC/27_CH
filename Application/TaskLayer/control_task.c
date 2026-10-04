@@ -22,15 +22,19 @@
 #include "chassis.h"       /* 底盘控制模块 */
 #include "gimbal_motor.h"  /* 云台电机模块 */
 #include "rc_sensor.h"     /* 遥控器传感器模块 */
+#include "rc_protocol.h"   /* 键盘按键状态机 */
 #include "gimbal.h"
 #include "car_control.h"
 #include "communicate.h"   /* 板间通信模块 */
 #include "shoot.h"         /* 拨弹控制模块 */
+#include "cap_protocol.h"  /* 超电控制帧 0x222 */
+#include "rp_config.h"
 
 
 void StartCtrlTask(void *argument)
 {
     uint32_t next_wake;
+    uint16_t cap_tx_cnt = 0;
     (void)argument;  /* 消除未使用参数警告 */
 
     /* ====== 系统初始化阶段 ====== */
@@ -49,6 +53,9 @@ void StartCtrlTask(void *argument)
 
         /*板间通信看门狗*/
         Communicate_Check_Timeout();
+
+        /* 键盘/鼠标按键状态机：DBUS 中断只解析出电平，边沿/长按在这里流转 */
+        keyboard_update(rc_sensor.info);
 
         /*整车状态机更新 */
         Car_Control_Update(&hero_car);
@@ -72,9 +79,22 @@ void StartCtrlTask(void *argument)
              rc_sensor.errno == NONE_ERR) ? 1U : 0U;
         Board_Tx_D1();
 
-        Chassis_Update(rc_sensor.info->ch3,                  /* 前后平移通道 ch3 */
-                       rc_sensor.info->ch2,                  /* 左右平移通道 ch2 */
-                       rc_sensor.info->ch0,                  /* 自旋转通道 ch0 */
+        /* 超电控制帧 0x222：按 CAP_TX_PERIOD_TICKS 分频（20ms 一帧）。
+           放在 2ms 环里而不是裁判回调里，训练没裁判系统也照发 */
+        cap_tx_cnt++;
+        if (cap_tx_cnt >= CAP_TX_PERIOD_TICKS) {
+            cap_tx_cnt = 0;
+            cap_send_2E();
+        }
+
+        /* 底盘三轴通道：按输入源取摇杆 ch3/ch2/ch0 或键鼠 WASD 折算值，
+           统一为 SBUS 计数域，底盘模块不需要知道操作手用的是哪套 */
+        int16_t chassis_fwd, chassis_lat, chassis_rot;
+        Car_Chassis_Channel_Get(&hero_car, &chassis_fwd, &chassis_lat, &chassis_rot);
+
+        Chassis_Update(chassis_fwd,                          /* 前后平移通道 */
+                       chassis_lat,                          /* 左右平移通道 */
+                       chassis_rot,                          /* 自旋转通道 */
                        hero_gimbal.yaw.feedback_mec_angle,   /* 云台相对车头夹角 Δθ（弧度） */
                        hero_car.mode,                        /* 整车当前模式 */
                        chassis_failsafe);                    /* 失联保护标志 */

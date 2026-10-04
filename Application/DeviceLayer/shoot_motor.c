@@ -38,11 +38,7 @@ static Motor_RM_Tx_Info_t shoot_motor_tx;
 
 static Motor_RM_State_t shoot_motor_state;
 
-/**
-  *  拨弹电机的速度PID控制器（连发用）
-  *          - out_max = 10000.0: 输出限幅，对应电机最大力矩电流
-  M3508电机的力矩电流范围为[-16384, 16384]，这里限制为10000以保护电机
-  */
+//独立速度环，不需用到现在，连发定频步进，每300ms走一格，与单发共用角度环
 static pid_ctrl_t shoot_motor_speed_pid = {
     .kp = 15.0f,
     .ki = 0.0f,
@@ -52,40 +48,28 @@ static pid_ctrl_t shoot_motor_speed_pid = {
     .out_max = 10000.0f,
 };
 
-/**
-  * @brief  拨弹电机的角度外环PID（单发/锁位用）
-  * @details 目标与反馈均为encoder_sum（多圈编码器计数）。
-  *          kp=0.15：一格弹约31481计数，外环输出作为内环速度目标，
-  *          量级与速度环rpm目标匹配，上车后按实际响应再调。
-  */
+
+//角度外环
 static pid_ctrl_t shoot_motor_angle_pid = {
     .kp = 0.15f,
     .ki = 0.0f,
     .kd = 0.0f,
     .a = 1.0f,
     .integral_max = 0.0f,
-    .out_max = 3000.0f,
+    .out_max = 3000.0f, //rpm
 };
 
-/**
-  * @brief  拨弹电机角度环内层速度PID
-  * @details 与连发速度环共用同一组参数，反馈为encoder_speed(rpm)
-  */
+//角度内环速度PID
 static pid_ctrl_t shoot_motor_angle_speed_pid = {
     .kp = 15.0f,
     .ki = 0.0f,
     .kd = 0.0f,
     .a = 1.0f,
     .integral_max = 0.0f,
-    .out_max = 10000.0f,
+    .out_max = 10000.0f, //最大电流指令（M3508满量程16384
 };
 
-/**
-  * @brief  拨弹电机的控制信息
-  * @details 包含速度/角度输入标志和对应的PID控制器指针
-  *          Angle_Input_Flag=true：角度反馈由模块层填encoder_sum，
-  *          不走RM库内部的单圈encoder覆盖逻辑
-  */
+
 static Motor_RM_Ctrl_Info_t shoot_motor_ctrl = {
     .Speed_Input_Flag = false,
     .Angle_Input_Flag = true,           /* 角度反馈用多圈encoder_sum */
@@ -108,12 +92,8 @@ Motor_RM_t Shoot_Motor = {
     .single_init = RM_Motor_Init,
 };
 
-/**
-  * @brief  拨弹电机初始化
-  * @details 绑定函数指针并调用RM库初始化。
-  *          上电先按在线处理；若无CAN反馈，心跳累计后自动置离线。
-  * @retval None
-  */
+
+
 void Shoot_Motor_Init(void)
 {
     Shoot_Motor.single_init = RM_Motor_Init;
@@ -124,12 +104,8 @@ void Shoot_Motor_Init(void)
     shoot_motor_state.offline_cnt = 0;
 }
 
-/**
-  * @brief  拨弹电机卸力
-  * @details 清零三个PID的状态与目标，力矩清零后下发一帧零电流，
-  *          用于初始化、总开关关闭或失联保护。
-  * @retval None
-  */
+
+
 void Shoot_Motor_Stop(void)
 {
     pid_clear(&shoot_motor_speed_pid);

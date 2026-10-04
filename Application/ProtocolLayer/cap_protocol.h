@@ -2,6 +2,11 @@
 #define __CAP_PROTOCOL_H
 
 #include "main.h"
+
+/* 超电板 CAN 帧 ID（自定义协议，定制固件，帧布局不可改动） */
+#define CAP_RX_ID  (0x211U)  /* 超电板 -> 下层板：功率/电压/电流/能力 */
+#define CAP_TX_ID  (0x222U)  /* 下层板 -> 超电板：功率上限/缓冲/充放电限制/开关 */
+
 typedef struct __attribute__((packed)) cap_rx_info_struct {
     
     int16_t now_chassis_power;              // 当前底盘消耗功率

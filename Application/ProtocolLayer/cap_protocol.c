@@ -16,7 +16,7 @@
 #include "string.h"
 #include "drv_can.h"
 #include "cap.h"
-#include "Judge.h"
+#include "power_model.h"
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -37,16 +37,18 @@ uint8_t cap_tx_buf[8]; // CAN ID: 0x222
   * @details 将底盘功率缓冲值、功率限制值、充放电功率限制等参数
   *          打包为CAN数据帧，通过FDCAN3总线发送到电容模块（ID: 0x222）。
   *
-  * @note   该函数每次调用都会从裁判系统读取最新的功率数据，确保实时性
+  * @note   功率预算统一走 power_model.c 的取值函数，不再直接摸裁判系统，
+  *          这样训练（无裁判）和比赛（有裁判）共用一条发送路径。
+  *          由 control_task 按 CAP_TX_PERIOD_TICKS 周期调用。
   * @retval None
   */
 void cap_send_2E(void)
 {
-    /* 从裁判系统获取底盘功率缓冲值（剩余可用电量） */
-    cap_tx_info.chassis_power_buffer = My_Judge.org_info->power_heat_data.chassis_power_buffer;
+    /* 底盘能量缓冲（J）：裁判在线用实测值，离线给名义满值 */
+    cap_tx_info.chassis_power_buffer = (uint8_t)Power_Budget_Buffer();
 
-    /* 从裁判系统获取底盘功率上限值（裁判系统根据等级动态分配） */
-    cap_tx_info.chassis_power_limit = My_Judge.org_info->game_robot_status.chassis_power_limit;
+    /* 底盘功率上限（W）：裁判在线用裁判值×裕量，离线用训练基准 */
+    cap_tx_info.chassis_power_limit = (uint16_t)Power_Budget_Get();
 
     /* 设置电容充电功率上限为300W（从底盘获取能量的最大值） */
     cap_tx_info.cap_power_in_limit = 300;
@@ -57,21 +59,14 @@ void cap_send_2E(void)
     /* 涡轮增压模式关闭 */
     cap_tx_info.bit_control.turbo_mode = 0;
 
-    /* 电容开关控制：根据电容使能标志设置开关状态 */
-    if(cap.Y_O_N == 1)
-    {
-        cap_tx_info.bit_control.cap_switch = 1;  /* 电容开启 */
-    }
-    else
-    {
-        cap_tx_info.bit_control.cap_switch = 1;  /* 注意：此处无论Y_O_N为何值都设为1，可能为代码Bug */
-    }
+    /* 电容放电开关：跟随 Shift（cap.Y_O_N），按住放电、松开待机充电 */
+    cap_tx_info.bit_control.cap_switch = (cap.Y_O_N != 0U) ? 1U : 0U;
 
     /* 将结构体数据拷贝到发送缓冲区（内存连续排列） */
     memcpy(cap_tx_buf, &cap_tx_info, sizeof(cap_transmit_data_t));
 
     /* 通过FDCAN3发送8字节数据帧 */
-    CAN_SendData(&hfdcan3, 0x222, cap_tx_buf);
+    CAN_SendData(&hfdcan3, CAP_TX_ID, cap_tx_buf);
 }
 
 

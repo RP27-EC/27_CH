@@ -20,6 +20,14 @@ typedef enum {
     CAR_MODE_SPIN,          /* 小陀螺自旋模式 */
 } CarMode_e;
 
+/* 输入源枚举：底盘/云台/发射读哪一套指令
+   键盘鼠标经 DR16 同一帧送上来（key_v 在 rxBuf[14..15]），与摇杆不冲突，
+   这里只做「操作手现在用哪套」的标记，供后续键鼠控制分流用 */
+typedef enum {
+    INPUT_SRC_RC = 0,       /* 遥控器摇杆 */
+    INPUT_SRC_KEY,          /* 键盘鼠标 */
+} InputSrc_e;
+
 /* 复位状态枚举 */
 typedef enum {
     RESET_PENDING = 0,      /* 正在复位 */
@@ -39,7 +47,8 @@ typedef struct {
     CarMode_e last_mode;        /* 上一周期模式 */
     ResetState_e reset_state;   /* 复位状态 */
     uint16_t init_timer;        /* 复位超时计时器 */
-    
+    InputSrc_e input_src;       /* 当前输入源（键鼠模式用） */
+
     CarFlags_t flags;           /* 控制标志位 */
 } Car_t;
 
@@ -48,5 +57,20 @@ extern Car_t hero_car;
 /* 外部调用接口 */
 void Car_Control_Init(Car_t *car);
 void Car_Control_Update(Car_t *car);
+
+/**
+  * @brief  按当前输入源取底盘三轴通道
+  * @details 输出统一是 SBUS 计数域 [-660, 660]，与遥控器摇杆同量纲：
+  *          - INPUT_SRC_RC  : 直接回传 ch3 / ch2 / ch0（与逐通道传参完全一致）
+  *          - INPUT_SRC_KEY : W/S、A/D 的「按住时间比例」折算到 ±660，Ctrl 按住时平移置零
+  *
+  *          底盘模块因此不必知道输入源，Chassis_Update 的归一化/死区/麦轮解算一条不用改。
+  *
+  * @param  car     : 整车状态机对象指针
+  * @param  forward : 前后通道（正 = 前）
+  * @param  lateral : 左右通道（正 = 左）
+  * @param  rotate  : 自旋通道（正 = 逆时针；键鼠暂不映射，恒为 0）
+  */
+void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int16_t *rotate);
 
 #endif /* CAR_CONTROL_H */

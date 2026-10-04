@@ -1290,6 +1290,16 @@
               <FilePath>..\Application\AlgorithmLayer\PID.c</FilePath>
             </File>
             <File>
+              <FileName>power_model.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\AlgorithmLayer\power_model.c</FilePath>
+            </File>
+            <File>
+              <FileName>power_model.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\AlgorithmLayer\power_model.h</FilePath>
+            </File>
+            <File>
               <FileName>rp_math.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\AlgorithmLayer\rp_math.c</FilePath>

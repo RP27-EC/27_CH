@@ -39,6 +39,20 @@
 #define RC_PITCH_MECH_SENSITIVITY   (RC_PITCH_DEG_PER_TICK * DEG_TO_RAD)
 #define RC_PITCH_MECH_DEADZONE      (30.0f)  /* 右摇杆上下(ch1)中位死区，单位SBUS计数 */
 
+/* ----------------------- 键鼠瞄准灵敏度 -------------------------------- */
+/* 鼠标位移是「一帧一个采样」，由 frame_seq 闸门保证一帧只累加一次，
+   所以下面两个量纲是「rad / 每帧滤波后鼠标位移」，不是每 2ms。
+   符号约定：鼠标右移 = 瞄准向右 = 目标角减小；鼠标上移 = 抬头 = 目标角增大。
+   上机手感不对就调这两个数，别去动闸门。 */
+#define MOUSE_YAW_SENS              (0.002f)    /* 鼠标横向 -> Yaw 目标角增量 (rad) */
+#define MOUSE_PITCH_SENS            (0.0012f)   /* 鼠标纵向 -> Pitch 目标角增量 (rad) */
+
+/* Ctrl + WASD 单击 = 云台目标角步进微调（度 -> 弧度）。
+   只认「刚按下」边沿，不连发，操作手可以数着步数校准。
+   Ctrl+Shift 同按走大步距。 */
+#define KEY_TRIM_STEP_SMALL         (0.05f * DEG_TO_RAD)
+#define KEY_TRIM_STEP_LARGE         (0.2f  * DEG_TO_RAD)
+
 /* 云台运行模式 */
 typedef enum {
     GIMBAL_MODE_SLEEP = 0,     
