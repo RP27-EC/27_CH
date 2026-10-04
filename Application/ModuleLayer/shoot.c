@@ -45,6 +45,7 @@ static const float fric_sign[FRIC_MOTOR_CNT] = {
     FRIC_SIGN_U, FRIC_SIGN_R, FRIC_SIGN_L,
 };
 
+
 /* 内部私有函数声明 */
 static void Fric_Target_Update(void);
 static void Fric_Status_Detect(void);
@@ -88,20 +89,15 @@ void Shoot_Init(void)
     }
 }
 
-/**
-  * @brief  写六轮速度环目标
-  * @note   关摩擦轮时目标清零，由速度环把轮子刹下来，
-  *         不直接卸力溜车（摩擦轮惯量大，自由停很慢）。
-  *         转向约定：左正、右负、上负，反了只翻 shoot.h 的符号宏。
-  */
+//写六轮速度环目标
 static void Fric_Target_Update(void)
 {
     float f_rpm;
     float b_rpm;
 
-    shoot.fric.is_on = (board_rx_info.is_fric_on != 0U);
+    shoot.fric.is_on = (board_rx_info.is_fric_on != 0U);//接收到摩擦轮开启信号
 
-    f_rpm = shoot.fric.is_on ? shoot.fric.target_f_rpm : 0.0f;
+    f_rpm = shoot.fric.is_on ? shoot.fric.target_f_rpm : 0.0f;//关摩擦轮时目标清零，由速度环把轮子刹下来
     b_rpm = shoot.fric.is_on ? shoot.fric.target_b_rpm : 0.0f;
 
     F_U_Fric.ctrl->speed_ctrl->target = FRIC_SIGN_U * f_rpm;
@@ -112,15 +108,8 @@ static void Fric_Target_Update(void)
     B_L_Fric.ctrl->speed_ctrl->target = FRIC_SIGN_L * b_rpm;
 }
 
-/**
-  * @brief  判摩擦轮已达速与是否全部在线，写进 0x023 状态帧
-  * @note   达速按各自转向符号比较，反转的轮子不算达速，
-  *         这样装反不会误报就绪让下层板拨盘动作。
-  *         达速还必须与「正在驱动」相与：关轮刹车或板间失联
-  *         卸力溜车时，轮速从目标值衰减会穿过达速阈值，
-  *         若不看 is_on / is_online 就会误报就绪，下层板拿着
-  *         假就绪继续连发，弹丸打进降速中的摩擦轮。
-  */
+
+/*判摩擦轮已达速与是否全部在线，写进 0x023 状态帧*/
 static void Fric_Status_Detect(void)
 {
     uint8_t i;
@@ -131,7 +120,7 @@ static void Fric_Status_Detect(void)
     for (i = 0U; i < FRIC_MOTOR_CNT; i++) {
         if (!driving ||
             fric_sign[i] * (float)fric_motor[i]->rx_info->encoder_speed < FRIC_READY_RPM) {
-            speed_ok = false;
+            speed_ok = false;//处理带符号的转速达标判断
         }
         if (fric_motor[i]->state->status != DEV_ONLINE) {
             work_ok = false;
@@ -151,11 +140,8 @@ static void Fric_Status_Detect(void)
     }
 }
 
-/**
-  * @brief  六轮速度环闭环并下发
-  * @note   单颗离线只卸这一颗，其余继续闭环；
-  *         is_fric_work 报 0 后由下层板拦住拨盘，不必在这里停全部。
-  */
+/*六轮速度环闭环并下发
+is_fric_work 报 0 后由下层板拦住拨盘，不必在这里停全部*/
 static void Fric_Speed_Pid_Cal(void)
 {
     uint8_t i;
@@ -173,7 +159,7 @@ static void Fric_Speed_Pid_Cal(void)
         if (fric_motor[i]->state->status == DEV_ONLINE) {
             fric_motor[i]->single_set_speed(fric_motor[i]);
         } else {
-            fric_motor[i]->tx_info->torque = 0.0f;
+            fric_motor[i]->tx_info->torque = 0.0f;//单颗离线只卸这一颗，其余继续闭环；
         }
     }
 
