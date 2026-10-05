@@ -7,12 +7,14 @@
   *                   1. 摩擦轮就绪安全锁：未达速/电机离线时拨盘锁位不动，指令丢弃
   *                   2. 单发：角度环跟踪encoder_sum，每次加一格弹
   *                   3. 连发：定频步进（每300ms推进一格），与单发共用角度环
-  *                   4. 松手回吸：停射时目标对齐到最近整格，防半格卡弹
-  *                   5. 防卡弹反转：堵转先退一格松弹，再补回原目标重试
-  *                   6. 卡弹停机：重试用尽则停射停摩擦轮，重拨总开关才解锁
+  *                   4. 退弹：反向退一格，到位回READY，不补位（S1中+S2中+拨轮向下）
+  *                   5. 松手回吸：停射时目标对齐到最近整格，防半格卡弹
+  *                   6. 防卡弹反转：堵转先退一格松弹，再补回原目标重试
+  *                   7. 卡弹停机：重试用尽则停射停摩擦轮，重拨总开关才解锁
   *
   *                   拨弹状态机：
   *                   SLEEP -> SPINUP -> READY -> FIRE <-> RECOIL -> STOP_JAM
+  *                                              READY -> EJECT -> READY（手动退弹）
   *                   总开关关闭、失联或电机离线时回退到SLEEP
   ******************************************************************************
   */
@@ -220,7 +222,7 @@ void Shoot_Update(const Car_t *car, bool failsafe)
                 break;
             }
 
-          /* 收到单发指令 
+          /* 收到单发指令
           ----------------carctrl内为2ms脉冲，每周期会清零并检测
           */
         } else if (car->flags.is_single_shoot_cmd) {
@@ -229,6 +231,14 @@ void Shoot_Update(const Car_t *car, bool failsafe)
             fire_cnt = 0;
             stuck_cnt = 0;
             shoot_state = SHOOT_STATE_FIRE;
+            break;
+        } else if (car->flags.is_eject_cmd) {
+            /* 手动退弹：目标退一格，角度环反向跟踪，到位回READY。
+               与卡弹RECOIL的区别：不补位、不重试、不停机，就是把已上膛的弹退回来。 */
+            angle_sum_target -= SHOOT_ONESHOT_ANGLE;
+            fire_cnt = 0;
+            stuck_cnt = 0;
+            shoot_state = SHOOT_STATE_EJECT;
             break;
         } else {
             //空闲：回吸最近整格
@@ -309,6 +319,35 @@ void Shoot_Update(const Car_t *car, bool failsafe)
         Shoot_Motor.ctrl->angle_ctrl_outer->target = angle_sum_target;
         Shoot_Motor.ctrl->angle_ctrl_outer->measure =
             (float)Shoot_Motor.rx_info->encoder_sum;
+        Shoot_Motor.single_set_angle(&Shoot_Motor);
+        break;
+    }
+
+    /* ---------- 手动退弹：反向退一格，到位回READY ---------- */
+    case SHOOT_STATE_EJECT: {
+        float err = angle_sum_target - (float)Shoot_Motor.rx_info->encoder_sum;
+
+        /* 到位：回READY，本轮退弹完成 */
+        if (fabsf(err) < SHOOT_ARRIVE_ERR) {
+            shoot_state = SHOOT_STATE_READY;
+            fire_cnt = 0;
+            stuck_cnt = 0;
+            break;
+        }
+
+        /* 超时保护：退不动就回READY，别卡死在退弹状态 */
+        if (fire_cnt > SHOOT_FIRE_TIMEOUT_TICKS) {
+            shoot_state = SHOOT_STATE_READY;
+            break;
+        }
+
+        if (fire_cnt < 0xFFFFU) {
+            fire_cnt++;
+        }
+
+        Shoot_Motor.ctrl->Angle_Input_Flag = true;
+        Shoot_Motor.ctrl->angle_ctrl_outer->target = angle_sum_target;
+        Shoot_Motor.ctrl->angle_ctrl_outer->measure = (float)Shoot_Motor.rx_info->encoder_sum;
         Shoot_Motor.single_set_angle(&Shoot_Motor);
         break;
     }

@@ -39,6 +39,7 @@ typedef struct {
     bool is_shoot_system_on;    /* 摩擦轮开启标志 */
     bool is_single_shoot_cmd;   /* 单发打弹脉冲指令 */
     bool is_continuous_shoot;   /* 连发标志（拨弹持续转动） */
+    bool is_eject_cmd;          /* 退弹脉冲指令（S1中+S2中+拨轮向下 = 退一格） */
 } CarFlags_t;
 
 /* 整车总控对象 */

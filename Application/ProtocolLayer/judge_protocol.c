@@ -108,3 +108,11 @@ void judge_recive(uint8_t *rxBuf)
         }
     }
 }
+
+/**
+  * @brief USART1 接收回调重写：把串口数据桥接给裁判系统解析
+  */
+void USART1_rxDataHandler(uint8_t *rxBuf)
+{
+    judge_recive(rxBuf);
+}
