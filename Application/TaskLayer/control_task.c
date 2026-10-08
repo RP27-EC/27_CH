@@ -6,7 +6,6 @@
 #include "control_task.h"
 #include "board_comm.h"
 #include "gimbal.h"
-#include "imu_sensor.h"     /* 0x021/0x022 姿态源 */
 #include "shoot.h"          /* 摩擦轮控制模块 */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,19 +41,6 @@ void StartControlTask(void const * argument)
              * 但 rate_yaw 的原始正方向相反，因此发送前取反，使角度和角速度一致。 */
             Board_Comm_Send_IMU(imu_sensor.info->base_info.yaw * DEG_TO_RAD,
                                 -imu_sensor.info->base_info.rate_yaw * DEG_TO_RAD);
-
-            /* 0x022 pitch IMU：下层板 GYRO 域软限位 / 模式切入同步用。
-               符号由 gimbal.h 的 PITCH_IMU_*_SIGN 管；上层闭环读写同一份
-               gimbal.pitch.imu_*，与 0x022 保持同域。
-               2026-10-08：gim_trans.arz 已按实测改为 0（模板 90 与安装不符，
-               且加速度计修正在错误方向拉 roll）。取数回到 base_info.pitch /
-               rate_pitch；符号仍须手抬枪管重标。yaw 0x021 不动。 */
-            gimbal.pitch.imu_pitch =
-                imu_sensor.info->base_info.pitch * DEG_TO_RAD * PITCH_IMU_SIGN;
-            gimbal.pitch.imu_pitch_rate =
-                imu_sensor.info->base_info.rate_pitch * DEG_TO_RAD * PITCH_IMU_RATE_SIGN;
-            Board_Comm_Send_Pitch_IMU(gimbal.pitch.imu_pitch,
-                                      gimbal.pitch.imu_pitch_rate);
         }
 
         if (imu_valid) {
