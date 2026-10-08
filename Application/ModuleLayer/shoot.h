@@ -18,8 +18,8 @@
 #include "motor.h"
 
 /* 摩擦轮目标转速 (rpm)，台架实测后标定 */
-#define FRIC_TARGET_F_RPM        (2900.0f)   /* 前层目标转速 */
-#define FRIC_TARGET_B_RPM        (2850.0f)   /* 后层目标转速 */
+#define FRIC_TARGET_F_RPM        (2200.0f)   /* 前层目标转速 */
+#define FRIC_TARGET_B_RPM        (2100.0f)   /* 后层目标转速 */
 
 /* 达速判据：转速越过该阈值（按各自转向符号）才算就绪 */
 #define FRIC_READY_RPM           (1300.0f)

@@ -28,7 +28,8 @@ typedef enum Motor_MIT_Command_enum_e
 	Enter_Motor_Mode,//使能电机控制(指示灯变绿)
 	Exit_Motor_Mode,//失能电机控制(指示灯变红)
 	Zero_Position_Sensor,//设定当前编码角度为零
-	
+	Clear_Err,//清除电机错误标志(0xFB)，故障态恢复用
+
 }Motor_MIT_Command_e;
 
 /*电机模式*/

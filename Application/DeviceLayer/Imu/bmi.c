@@ -31,6 +31,16 @@
 /** @brief 标准重力加速度 (m/s^2) */
 #define GRAVITY_EARTH  (9.80665f)
 
+/* Mahony accel correction switch.
+   2026-10-08 field: arz=0 + USE_ACCEL=0 -> pitch stable (channel/signs OK).
+   USE_ACCEL=1 -> pitch still monotonically decreases -> accel frame/convention
+   still wrong (positive feedback). Keep 0 for control. World absolute pitch
+   needs accel convention fix or later EKF switch.
+   Only defined here; gimbal.h mentions the name in a comment only. */
+#ifndef IMU_MAHONY_USE_ACCEL
+#define IMU_MAHONY_USE_ACCEL  (1)
+#endif
+
 /* Private variables ---------------------------------------------------------*/
 /**
  * @brief ARM CMSIS-DSP 矩阵实例
@@ -54,7 +64,11 @@ arm_matrix_instance_f32 Dst;    /* 目标向量 */
  * @arx 陀螺仪 Y 轴与 yaw 轴之间的夹角（度），默认 0 度
  */
 gimbal_transform_t gim_trans = {
-    .arz = 90.0f,   /* Z 轴旋转角度：90度 */
+    /* 2026-10-08 上机：模板默认 arz=90 与本车安装不符。
+       现象：动云台 pitch 时 base_info.pitch 几乎不动、roll 变；
+       打开加速度计修正后 roll 单向疯涨（修正在错误方向拉姿态）。
+       改 arz=0：传感器 Y≈云台 pitch，与 rate_pitch=gyroy_ / 欧拉 pitch 一致。 */
+    .arz = 0.0f,    /* Z 轴旋转角度：0度（本车实测；模板 90 作废） */
     .ary = 0.0f,    /* Y 轴旋转角度：0度 */
     .arx = 0.0f,    /* X 轴旋转角度：0度 */
     .trans = {0.0f}, /* 变换矩阵数组（3x3 = 9个元素） */
@@ -236,7 +250,10 @@ uint8_t BMI_Get_EulerAngle(float *pitch,float *roll,float *yaw,\
 	/* ========== Mahony 互补滤波算法 start ========== */
 
 	/* 检查加速度计数据是否有效（非零） */
-	if(bmi.ax * bmi.ay * bmi.az != 0)
+	/* 水平时 ax/ay≈0，乘积恒 0 会永久关掉加速度计修正 → 陀螺零偏积分、roll 单向漂移。
+		   改用模长判断（接近 0 才无效）。 */
+		#if IMU_MAHONY_USE_ACCEL == 1
+		if((bmi.ax*bmi.ax + bmi.ay*bmi.ay + bmi.az*bmi.az) > 0.01f)
 	{
         /* 步骤1：加速度计数据归一化（使其模长为 1） */
         bmi.norm = inVSqrt(bmi.ax*bmi.ax + bmi.ay*bmi.ay + bmi.az*bmi.az);
@@ -273,6 +290,7 @@ uint8_t BMI_Get_EulerAngle(float *pitch,float *roll,float *yaw,\
         bmi.gy = bmi.gy + bmi.ey*bmi.Kp;
         bmi.gz = bmi.gz + bmi.ez*bmi.Kp;
 	}
+#endif /* IMU_MAHONY_USE_ACCEL */
 
     /* 步骤5：保存当前四元数到临时变量（防止更新过程中数据被覆盖） */
     bmi.q0_temp = bmi.q0;

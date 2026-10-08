@@ -49,7 +49,8 @@ arm_matrix_instance_f32 EKFDst;    /* EKF 用目标向量（1x3） */
  * arz=90 度表示 IMU 安装时绕 Z 轴旋转了 90 度
  */
 gimbal_transform_t EKFgim_trans = {
-    .arz = 90.0f,   /* Z 轴旋转角度：90度 */
+    /* 与 bmi.c gim_trans 保持一致：本车 arz=0（模板 90 与安装不符，见 bmi.c 注释） */
+    .arz = 0.0f,    /* Z 轴旋转角度：0度 */
     .ary = 0.0f,    /* Y 轴旋转角度：0度 */
     .arx = 0.0f,    /* X 轴旋转角度：0度 */
     .trans = {0.0f}, /* 变换矩阵数组 */

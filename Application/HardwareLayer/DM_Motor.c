@@ -21,6 +21,12 @@
  *              - KD: 微分增益，控制速度阻尼强度
  *              - 扭矩(torque): 前馈力矩
  *              最终输出力矩 = KP * (目标角度 - 当前角度) + KD * (目标速度 - 当前速度) + 扭矩
+ *
+ *              故障恢复说明：
+ *              - 0xFC 进入MIT模式（仅 Motor_Unenable 发送）
+ *              - 0xFB 清除电机错误标志（其它故障态发送，如 Commun_Loss）
+ *              - 0xFD 退出MIT / 0xFE 置零编码器
+ *              状态以电机反馈错误码为准，不在发 0xFC 时本地预置 Motor_Enable
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -100,15 +106,21 @@ void DM_Single_Motor_ZeroPosSensor(Motor_DM_t *motor)
   * @brief          单电机控制输出转矩,含有CAN发送操作
   * @param[in]      Motor_DM_t *motor     电机本体
   * @retval         none
+  * @note           状态机对齐 RP26：
+  *                 Motor_Enable    -> 打包 MIT 力矩帧
+  *                 Motor_Unenable  -> 发 0xFC 进 MIT（状态由 RX 错误码确认，不本地预置 Enable）
+  *                 其它故障态      -> 发 0xFB Clear_Err，避免对故障电机空打 MIT
   */
 void DM_Single_Motor_Set_Torque(Motor_DM_t *motor)
 {
 	  if(motor != NULL)
 		{
-			if(motor->state->motor_state == Motor_Unenable)
+			if(motor->state->motor_state != Motor_Enable)
 			{
-				motor->state->motor_state = Motor_Enable;
-				Motor_Send_Command(motor, Enter_Motor_Mode);
+				if(motor->state->motor_state == Motor_Unenable)
+					Motor_Send_Command(motor, Enter_Motor_Mode);
+				else
+					Motor_Send_Command(motor, Clear_Err);
 			}
 			else
 			{
@@ -388,6 +400,9 @@ static void Motor_Send_Command(Motor_DM_t *motor, Motor_MIT_Command_e Command)
 		break;
 		case Zero_Position_Sensor:
 		Motor_Command[7] = 0xFE;
+		break;
+		case Clear_Err:
+		Motor_Command[7] = 0xFB;/* 清除电机错误标志 */
 		break;
 		default:
 		break;
