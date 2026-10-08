@@ -111,8 +111,10 @@ void judge_recive(uint8_t *rxBuf)
 
 /**
   * @brief USART1 接收回调重写：把串口数据桥接给裁判系统解析
+  * @note   裁判系统已停用（不做功率限制、不读裁判数据）：本回调注释掉，
+  *          USART1 收到的帧不再解析。恢复裁判功能时取消注释即可。
   */
-void USART1_rxDataHandler(uint8_t *rxBuf)
-{
-    judge_recive(rxBuf);
-}
+// void USART1_rxDataHandler(uint8_t *rxBuf)
+// {
+//     judge_recive(rxBuf);
+// }

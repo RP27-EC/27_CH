@@ -9,7 +9,6 @@
 #include "rc_sensor.h"
 #include "gimbal.h"
 #include "chassis.h"
-#include "cap.h"
 #include "main.h"
 
 
@@ -189,13 +188,13 @@ static void Car_Init_State_Machine(Car_t *car) {
             car->init_timer >= INIT_MAX_TIMEOUT_TICKS) {
             car->reset_state = RESET_DONE;       /* 标记初始化完成 */
             car->init_timer = 0;                 /* 清零计时器 */
-            car->mode = CAR_MODE_MECH;           /* 复位完成后默认进入陀螺仪模式CAR_MODE_GYRO，进入机械模式 CAR_MODE_MECH*/
+            car->mode = CAR_MODE_MECH;           /* 复位完成后默认进入机械模式 CAR_MODE_MECH */
         }
     }
 }
 
 /* ========================================================================= */
-/*                          2. 遥控器模式切换逻辑                            */
+/*                     2. 模式切换（遥控器拨轮矩阵 / 键鼠 F/G/V）              */
 /* ========================================================================= */
 
 /*遥控器拨杆与拨轮的模式切换处理（s1/s2 用本拍快照，见 Car_Control_Update）*/
@@ -235,26 +234,30 @@ static void Car_Mode_Switch_Update(Car_t *car, bool tb_up, bool tb_dn, uint8_t s
     }
 }
 
-/* ========================================================================= */
-/*                     3. 输入源标记与超电放电开关                           */
-/* ========================================================================= */
-
 /**
-  * @brief  输入源判定（摇杆 / 键鼠）
-  * @details 键鼠数据与摇杆共用 DR16 同一帧上来（key_v 在 rxBuf[14..15]），
-  *          二者天然不冲突。判定只看拨杆位置，是电平语义、每个 2ms 重评一次，
-  *          不做边沿锁存：
-  *
-  *            S1下 + S2下（RC_SW_DOWN, RC_SW_DOWN）-> 键鼠
-  *            其余组合                                   -> 遥控器摇杆
-  *
-  *          用拨杆位而不是「键盘/鼠标有动静」来判，是因为后者会被误触打断：
-  *          摇杆开车时手滑敲一下键盘，整套输入源就跳走了。
-  *
-  * @param  s1 : 本拍拨杆 s1 快照
-  * @param  s2 : 本拍拨杆 s2 快照
-  * @retval 当前输入源
+  * @brief  键鼠模式下的整车模式切换（F/G/V 三键直达）
+  *          绑定（边沿 release_to_press，一拍只触发一次）：
+  *          - F : 进入陀螺仪模式 CAR_MODE_GYRO
+  *          - G : 进入小陀螺模式 CAR_MODE_SPIN
+  *          - V : 进入机械模式   CAR_MODE_MECH
+  *          SLEEP / INIT 一律不响应
   */
+static void Car_Key_Mode_Switch_Update(Car_t *car) {
+    if (car->mode == CAR_MODE_SLEEP || car->mode == CAR_MODE_INIT) {
+        return;
+    }
+
+    if (rc_sensor.info->F.status == release_to_press) {
+        car->mode = CAR_MODE_GYRO;
+    } else if (rc_sensor.info->G.status == release_to_press) {
+        car->mode = CAR_MODE_SPIN;
+    } else if (rc_sensor.info->V.status == release_to_press) {
+        car->mode = CAR_MODE_MECH;
+    }
+}
+
+
+/*输入源判定（摇杆 / 键鼠） S1下 + S2下（RC_SW_DOWN, RC_SW_DOWN）*/
 static InputSrc_e Car_Input_Src_Detect(uint8_t s1, uint8_t s2) {
     if (s1 == RC_SW_DOWN && s2 == RC_SW_DOWN) {
         return INPUT_SRC_KEY;
@@ -263,12 +266,19 @@ static InputSrc_e Car_Input_Src_Detect(uint8_t s1, uint8_t s2) {
 }
 
 /**
-  * @brief  超级电容放电开关（Shift）
-  * @details 电平语义：按住 Shift = 电容放电（底盘功率随之放宽），
-  *          松开 = 待机充电。不做点按切换，松手即断，防误触后一直放电。
+  * @brief  键鼠 R 换头：状态机一拍一变，这里只认「刚进入 release_to_press」
+  * @details 键盘状态在 ~14ms 的 DBUS 帧里保持，而本环是 2ms——
+  *          直接判 status==release_to_press 会连置多拍脉冲。
+  *          换头结束后若 status 仍高，就会再 +180° / 再翻一次锁轴，
+  *          表现为「转一圈回到原位、没有换头」。这里用相邻拍边沿掐掉。
+  * @retval true : 本拍 R 刚按下（单帧）
   */
-static void Car_Cap_Cmd_Update(void) {
-    cap.Y_O_N = (rc_sensor.info->Shift.value != 0U) ? 1U : 0U;
+static bool Car_R_Turn_Edge(void) {
+    static bool prev = false;
+    const bool now = (rc_sensor.info->R.status == release_to_press);
+    const bool edge = now && !prev;
+    prev = now;
+    return edge;
 }
 
 /* ========================================================================= */
@@ -280,8 +290,7 @@ static void Car_Cap_Cmd_Update(void) {
   * @details 根据遥控器拨杆和拨轮输入，处理发射系统的开关控制：
   *
   *          1. 摩擦轮开关：S1中 + S2中 + 拨轮向上 -> 切换摩擦轮开/关
-  *          2. 退弹：S1中 + S2中 + 拨轮向下 -> 退一格（与摩擦轮开关同位，拨轮反向）
-  *          3. 单发：S2上（上升沿）。s2 从非上位拨到上位出一发，
+  *          2. 单发：S2上（上升沿）。s2 从非上位拨到上位出一发，
   *             必须回中（s2=3）再拨上来才有下一发——真单发，不是 0.6s 一发的伪单发。
   *             旧的冷却逻辑注释掉保留：它让「拨一下按住」看起来像慢速连发。
   *
@@ -294,29 +303,14 @@ static void Car_Cap_Cmd_Update(void) {
   *               先来一帧真实的 (中, 下)。S1 还停在中位没动，第 2 道闸拦不住
   *               这一帧——那是线上值不是撕裂。S2 停稳窗把这类错位帧挡掉。
   *
-  * @param  car       : 整车状态机对象指针
-  * @param  tb_up     : 拨轮向上边沿触发标志
-  * @param  tb_dn     : 拨轮向下边沿触发标志（退弹用）
-  * @param  s1        : 本拍拨杆 s1 快照
-  * @param  s2        : 本拍拨杆 s2 快照
-  * @param  s1_stable : s1 已停稳（由 Car_Control_Update 每拍算好传进来，
-  *                     计数不归本函数管，否则键鼠期间会冻结）
-  * @param  s2_stable : s2 已停稳（同上）。连发装配额外要求这一项，
-  *                     堵住进键鼠时 s2 先动产生的真实 (中, 下) 错位帧
-  * @retval None
   */
-static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, bool tb_dn, uint8_t s1, uint8_t s2, bool s1_stable, bool s2_stable) {
+static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1, uint8_t s2, bool s1_stable, bool s2_stable) {
     /* --- 1. 摩擦轮开关控制：S1中 + S2中 + 拨轮向上--- */
     if (s1 == 3 && s2 == 3 && tb_up) {
         car->flags.is_shoot_system_on = !car->flags.is_shoot_system_on;  //翻转切换开/关
     }
 
-    /* --- 2. 退弹：S1中 + S2中 + 拨轮向下 --- */
-    if (s1 == 3 && s2 == 3 && tb_dn) {
-        car->flags.is_eject_cmd = true;
-    }
-
-    /* --- 3. 发射逻辑（单发 / 手动打）--- */
+    /* --- 2. 发射逻辑（单发 / 手动打）--- */
 
     car->flags.is_single_shoot_cmd = false; //！！每次循环先清除单发指令，只在满足条件时置位
 
@@ -369,10 +363,6 @@ static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, bool tb_dn, uint8_t s1
 
 /**
   * @brief  键鼠模式下的发射动作指令处理
-  * @details 与遥控器那套并列，只在 input_src == INPUT_SRC_KEY 时被调用，
-  *          遥控器分支一个字节都不用动，键鼠分支也永远不会碰到
-  *          「S2下 且 S1非上」那条连发条件（否则切进键鼠模式的瞬间就会走火）。
-  *
   *          绑定：
   *          - 鼠标左键 : 摩擦轮关着 -> 先开摩擦轮（不打弹，防止冷轮打弹卡弹）
   *                       摩擦轮开着 -> 单发（0.6s 冷却，冷却内忽略）
@@ -383,9 +373,8 @@ static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, bool tb_dn, uint8_t s1
   * @retval None
   */
 static void Car_Key_Action_Cmd_Update(Car_t *car) {
-    /* 每次循环先清单发/退弹指令，只在满足条件时置位（与遥控器分支同一套习惯） */
+    /* 每次循环先清单发指令，只在满足条件时置位（与遥控器分支同一套习惯） */
     car->flags.is_single_shoot_cmd = false;
-    car->flags.is_eject_cmd = false;
 
     /* 键鼠不给连发，彻底断掉走火通路 */
     car->flags.is_continuous_shoot = false;
@@ -435,24 +424,18 @@ static void Car_Key_Action_Cmd_Update(Car_t *car) {
   *          按满 cnt_max 自动饱和到 1.0（cnt 本身在 keyboard_status_update 里被钳位），
   *          W+S / A+D 同按自然对消。没有斜坡状态要维护。
   *
+  *          键鼠旋转映射（仅机械模式）：Q=左旋、E=右旋，与摇杆左右同向
+  *          （chassis.c 对 rotate 通道取反后，左打 = 逆时针）。
+  *          GYRO/SPIN 不映射旋转，*rotate 恒为 0 —— 跟随/自旋由模式自己给 wz。
+  *
   * @param  car     : 整车状态机对象指针
   * @param  forward : 前后通道（正 = 前）
   * @param  lateral : 左右通道（正 = 左）
-  * @param  rotate  : 自旋通道（键鼠暂不映射，恒为 0）
+  * @param  rotate  : 自旋通道（正 = 逆时针；键鼠仅机械模式映射 Q/E，其余恒为 0）
   * @retval None
   */
 void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int16_t *rotate) {
-    /* WASD 计数是按键状态机在 2ms 环里无条件充的，而它兼作「按住渐进加速」的斜坡。
-       只有斜坡真被当底盘速度消费时才放它充电，其余一律清零，
-       否则斜坡会被后台充满，一进入可用状态当拍就满速冲车：
-         - 不在键鼠模式       ：遥控器在用摇杆，计数无意义
-         - 整车 SLEEP / INIT  ：既不跑底盘也不跑微调，充了就是纯预充电
-                                （INIT 可长达 1.5s，比 0.8s 的斜坡满程还长；
-                                 失联窗口 input_src 会停在旧值，也落在这条里）
-         - Ctrl 刚松开那一拍  ：微调期间充的值不能带进平移
-       Ctrl 按住期间不能清 —— 清了会让按键重新触发下降沿，微调变成连跳。
-       下降沿用 Ctrl_Fall_Edge 的电平快照，不用键盘状态机的 press_to_release：
-       后者在环开头产出、这里在环末尾消费，中间落一帧 DBUS 就读到撕裂状态。 */
+
     const bool ramp_live = (car->input_src == INPUT_SRC_KEY) &&
                            (car->mode != CAR_MODE_SLEEP) &&
                            (car->mode != CAR_MODE_INIT);
@@ -463,6 +446,17 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
         rc_sensor.info->D.cnt = 0;
     }
 
+    /* Q/E 旋转斜坡：与 WASD 同一套「只在消费时放行」规则。
+       非键鼠 / SLEEP / INIT / Ctrl 按住 / 非机械模式一律清零，
+       否则预充电会在切进 MECH 或松开 Ctrl 当拍满速旋转。 */
+    const bool rotate_live = ramp_live &&
+                             (car->mode == CAR_MODE_MECH) &&
+                             (ctrl_val_snap == 0U);
+    if (!rotate_live || ctrl_fall_edge) {
+        rc_sensor.info->Q.cnt = 0;
+        rc_sensor.info->E.cnt = 0;
+    }
+
     if (car->input_src != INPUT_SRC_KEY) {
         *forward = rc_sensor.info->ch3;
         *lateral = rc_sensor.info->ch2;
@@ -470,21 +464,28 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
         return;
     }
 
-    /* Ctrl = 云台微调模式：底盘平移置零，微调时车不能跟着跑。
-       WASD 边沿此时归云台做 0.05°/0.2° 步进微调用。 */
+    /* Ctrl = 云台微调模式：底盘平移与旋转都置零，微调时车不能跟着跑。
+       WASD/Q/E 边沿此时归云台做 0.05°/0.2° 步进微调用。 */
     if (ctrl_val_snap != 0U) {
         *forward = 0;
         *lateral = 0;
+        *rotate  = 0;
     } else {
         *forward = (int16_t)((float)(rc_sensor.info->W.cnt - rc_sensor.info->S.cnt)
                              * CHASSIS_RC_MAX_VALUE / (float)KEY_W_CNT_MAX);
         *lateral = (int16_t)((float)(rc_sensor.info->A.cnt - rc_sensor.info->D.cnt)
                              * CHASSIS_RC_MAX_VALUE / (float)KEY_A_CNT_MAX);
-    }
 
-    /* 键鼠不映射自旋：GYRO/SPIN 下底盘跟随或恒定自旋由模式自己给 wz，
-       摇杆那条前馈通道在键鼠模式下留给 0。 */
-    *rotate = 0;
+        /* 机械模式才映射旋转：E - Q 使 E 为正、Q 为负，
+           与摇杆 ch0 左负右正同号，经 chassis.c 取反后方向一致。
+           GYRO/SPIN 恒为 0：跟随/自旋由模式自己给 wz，键鼠不再给旋转键。 */
+        if (car->mode == CAR_MODE_MECH) {
+            *rotate = (int16_t)((float)(rc_sensor.info->E.cnt - rc_sensor.info->Q.cnt)
+                                * CHASSIS_RC_MAX_VALUE / (float)KEY_Q_CNT_MAX);
+        } else {
+            *rotate = 0;
+        }
+    }
 }
 
 /* ========================================================================= */
@@ -503,9 +504,7 @@ void Car_Control_Init(Car_t *car) {
     car->flags.is_shoot_system_on = false;    /* 摩擦轮关闭 */
     car->flags.is_single_shoot_cmd = false;   /* 无单发指令 */
     car->flags.is_continuous_shoot = false;   /* 无连发 */
-    car->flags.is_eject_cmd = false;          /* 无退弹指令 */
-
-    cap.Y_O_N = 0;                            /* 超电默认待机充电 */
+    car->flags.is_turn_cmd = false;           /* 无换头 */
 }
 
 
@@ -514,29 +513,31 @@ void Car_Control_Init(Car_t *car) {
 void Car_Control_Update(Car_t *car) {
     car->last_mode = car->mode;  /* 用于边沿检测 */
 
-    /* 拨杆快照：一拍只取一次，而且必须「一对」原子取。
-       s1/s2 由 UART5 中断（优先级 5，抢占本 2ms 任务）在同一处理里背靠背写入
-       （都从 rxBuf[5] 解出来），两次普通加载之间被抢占就会拼出「旧 s1 + 新 s2」
-       的假组合 —— (3,2) 假组合正好是连发条件。关中断几拍取一对，每 2ms 一次。
-       放在失联判断之前，是为了让停稳计数在任何路径下都跟着 s1 走。 */
+    /* 本拍输入快照：s1/s2/Ctrl 三者必须取自同一帧 DBUS，所以整体放在关中断临界区里 */
     uint8_t s1, s2;
     {
+        /* 备份当前中断总开关状态，取完快照后按原样恢复 */
         const uint32_t primask = __get_PRIMASK();
+        //关全局中断
         __disable_irq();
+
+        /* 取拨杆快照：本拍内全函数只认这一份局部值，不再直接碰共享变量 */
         s1 = rc_sensor.info->s1;
         s2 = rc_sensor.info->s2;
+        /* 取 Ctrl 键电平快照：写入文件级变量，后面 Ctrl_Fall_Edge 和底盘通道函数都要消费它 */
         ctrl_val_snap = rc_sensor.info->Ctrl.value;
+        
+        //恢复中断
         __set_PRIMASK(primask);
     }
 
-    /* 停稳计数每拍都要走，不能只挂在遥控器分支里 ——
-       键鼠期间计数会冻结，出键鼠那一瞬拿到的是进键鼠之前攒的陈旧值。
-       「s1 进键鼠前停在中位 ≥100ms」的场景，回拨第一帧就被判已停稳、零停留走火。
-       Ctrl 下降沿同理：必须每拍从电平快照算，不能用键盘状态机的 status——
-       那个边沿在 keyboard_update 里产出，底盘通道函数在本拍末尾才消费，
-       中间落一帧 DBUS 就读到撕裂状态。 */
+    /* 停稳判定 + Ctrl 松开边沿：放在分流之前、每 2ms 无条件执行（键鼠期间照算），
+       函数内部的计数器才不会冻结成陈旧值、出键鼠第一拍误报「已停稳」走火 */
+
     const bool s1_stable = Car_S1_Stable(s1);
+
     const bool s2_stable = Car_S2_Stable(s2);
+
     ctrl_fall_edge = Ctrl_Fall_Edge(ctrl_val_snap);
 
     //失联保护
@@ -546,14 +547,12 @@ void Car_Control_Update(Car_t *car) {
         car->flags.is_shoot_system_on = false;    /* 关闭摩擦轮 */
         car->flags.is_single_shoot_cmd = false;   /* 取消单发指令 */
         car->flags.is_continuous_shoot = false;   /* 取消连发 */
-        car->flags.is_eject_cmd = false;          /* 取消退弹指令 */
-        cap.Y_O_N = 0;                            /* 失联即断电容放电 */
+        car->flags.is_turn_cmd = false;           /* 取消换头 */
         return;  /* 失联状态下不执行后续逻辑 */
     }
 
-    /* 输入源标记 + 超电放电开关（Shift 按住 = 放电） */
+    /* 输入源标记 */
     car->input_src = Car_Input_Src_Detect(s1, s2);
-    Car_Cap_Cmd_Update();
 
     /*上电复位流程*/
     if (car->reset_state == RESET_PENDING) {
@@ -566,15 +565,37 @@ void Car_Control_Update(Car_t *car) {
     bool tb_up = RC_Thumbwheel_Up_Edge();  /* 拨轮向上边沿 */
     bool tb_dn = RC_Thumbwheel_Dn_Edge();  /* 拨轮向下边沿 */
 
-    /*执行模式切换（根据拨杆S1/S2和拨轮组合）*/
-    Car_Mode_Switch_Update(car, tb_up, tb_dn, s1, s2);
+    /* 换头脉冲：每拍先清，只在满足条件时置一拍（与单发同一套习惯）。
+       MECH / GYRO / SPIN 都可换头：
+       - MECH：粘性锁轴 FRONT↔BACK 翻转
+       - GYRO/SPIN：世界系目标角 +180°（有滑环，不设方向限制） */
+    car->flags.is_turn_cmd = false;
 
-    /*执行动作指令处理（摩擦轮与发射控制）：按输入源分流。
-       键鼠分支永不进入遥控器那套拨杆判定，
-       否则 (s1=2, s2=2) 会同时满足「S2下 且 S1非上」的连发条件，切进键鼠就走火 */
+    /*模式切换：按输入源分流，两套并列互不串扰 */
     if (car->input_src == INPUT_SRC_KEY) {
+        Car_Key_Mode_Switch_Update(car);
         Car_Key_Action_Cmd_Update(car);
+
+        /* 键鼠换头：R 刚按下（真边沿，见 Car_R_Turn_Edge）。
+           F/G/V 已占用模式，R 专用于换头。 */
+        if (Car_R_Turn_Edge() &&
+            (car->mode == CAR_MODE_MECH ||
+             car->mode == CAR_MODE_GYRO ||
+             car->mode == CAR_MODE_SPIN)) {
+            car->flags.is_turn_cmd = true;
+        }
     } else {
-        Car_Action_Cmd_Update(car, tb_up, tb_dn, s1, s2, s1_stable, s2_stable);
+        Car_Mode_Switch_Update(car, tb_up, tb_dn, s1, s2);
+        Car_Action_Cmd_Update(car, tb_up, s1, s2, s1_stable, s2_stable);
+
+        /* 遥控换头：S1上 + S2上 + 拨轮上（tb_up 本身是单拍边沿）。
+           与模式矩阵不冲突：矩阵用 s2=中/下，摩擦轮用 s1=中。
+           MECH/GYRO/SPIN 均可触发。 */
+        if (s1 == RC_SW_UP && s2 == RC_SW_UP && tb_up &&
+            (car->mode == CAR_MODE_MECH ||
+             car->mode == CAR_MODE_GYRO ||
+             car->mode == CAR_MODE_SPIN)) {
+            car->flags.is_turn_cmd = true;
+        }
     }
 }

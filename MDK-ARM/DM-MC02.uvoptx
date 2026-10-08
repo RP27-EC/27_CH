@@ -164,7 +164,7 @@
           <Type>0</Type>
           <LineNumber>2789</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134231476</Address>
+          <Address>134232752</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
@@ -180,7 +180,7 @@
           <Type>0</Type>
           <LineNumber>2757</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134231534</Address>
+          <Address>134232810</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
@@ -196,7 +196,7 @@
           <Type>0</Type>
           <LineNumber>2090</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134277242</Address>
+          <Address>134280166</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
@@ -303,6 +303,16 @@
           <count>18</count>
           <WinNumber>1</WinNumber>
           <ItemText>Chassis_Motor</ItemText>
+        </Ww>
+        <Ww>
+          <count>19</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>cap_rx_info</ItemText>
+        </Ww>
+        <Ww>
+          <count>20</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>board_tx_info</ItemText>
         </Ww>
       </WatchWindow1>
       <WatchWindow2>
@@ -1450,7 +1460,7 @@
 
   <Group>
     <GroupName>Device</GroupName>
-    <tvExp>0</tvExp>
+    <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
     <RteFlg>0</RteFlg>

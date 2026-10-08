@@ -14,9 +14,7 @@
 
 #include "cap_protocol.h"
 #include "string.h"
-#include "drv_can.h"
 #include "cap.h"
-#include "power_model.h"
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -37,36 +35,24 @@ uint8_t cap_tx_buf[8]; // CAN ID: 0x222
   * @details 将底盘功率缓冲值、功率限制值、充放电功率限制等参数
   *          打包为CAN数据帧，通过FDCAN3总线发送到电容模块（ID: 0x222）。
   *
-  * @note   功率预算统一走 power_model.c 的取值函数，不再直接摸裁判系统，
-  *          这样训练（无裁判）和比赛（有裁判）共用一条发送路径。
-  *          由 control_task 按 CAP_TX_PERIOD_TICKS 周期调用。
+  * @note   超电板当前为「只读调试」模式：不需要使用超电，只要 debug 时
+  *          能读到 cap.info / cap.status 即可。TX 路径整体停用，
+  *          函数体注释保留；power_model 模块已删除，恢复供电策略时
+  *          需一并重建功率模型并取消下方注释。
   * @retval None
   */
 void cap_send_2E(void)
 {
-    /* 底盘能量缓冲（J）：裁判在线用实测值，离线给名义满值 */
+    /* ====== 超电 TX 停用（只读调试模式）：恢复时取消注释 ======
     cap_tx_info.chassis_power_buffer = (uint8_t)Power_Budget_Buffer();
-
-    /* 底盘功率上限（W）：裁判在线用裁判值×裕量，离线用训练基准 */
     cap_tx_info.chassis_power_limit = (uint16_t)Power_Budget_Get();
-
-    /* 设置电容充电功率上限为300W（从底盘获取能量的最大值） */
     cap_tx_info.cap_power_in_limit = 300;
-
-    /* 设置电容放电功率上限为300W（负值表示放电，向底盘供电） */
     cap_tx_info.cap_power_out_limit = -300;
-
-    /* 涡轮增压模式关闭 */
     cap_tx_info.bit_control.turbo_mode = 0;
-
-    /* 电容放电开关：跟随 Shift（cap.Y_O_N），按住放电、松开待机充电 */
     cap_tx_info.bit_control.cap_switch = (cap.Y_O_N != 0U) ? 1U : 0U;
-
-    /* 将结构体数据拷贝到发送缓冲区（内存连续排列） */
     memcpy(cap_tx_buf, &cap_tx_info, sizeof(cap_transmit_data_t));
-
-    /* 通过FDCAN3发送8字节数据帧 */
     CAN_SendData(&hfdcan3, CAP_TX_ID, cap_tx_buf);
+    ====== */
 }
 
 

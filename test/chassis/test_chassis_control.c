@@ -4,11 +4,12 @@
   * @brief   底盘控制单元测试文件
   * @details 本文件包含底盘控制逻辑的单元测试：
   *          - 测试前进时电机方向是否正确
-  *          - 测试小输入是否有死区
+  *          - 测试前进死区是否过滤噪声
   *          - 测试安全模式是否正确清除状态并发送零命令
   *          - 测试安全模式后是否能恢复正常控制
   *          - 测试陀螺仪模式下平移是否跟随云台朝向
   *          - 测试陀螺仪模式下旋转是否朝向正角度方向
+  *          - 测试 ALIGN_BACK 时跟随误差相对 180°（车尾对准、不掉头半圈）
   * @note   该测试使用桩函数（stub）模拟硬件操作，可在PC上独立运行
   ******************************************************************************
   */
@@ -26,6 +27,11 @@
   * @brief 浮点数比较精度阈值
   */
 #define EPSILON 0.001f
+
+/**
+  * @brief 满杆/满速比较阈值：cos(π)≠-1 的浮点尾巴，1 RPM 足够
+  */
+#define RPM_EPSILON 1.0f
 
 /**
   * 全局变量 - 模拟底盘电机和控制结构体
@@ -67,6 +73,18 @@ static void fail(const char *message)
 static void expect_near(float actual, float expected, const char *message)
 {
     if (fabsf(actual - expected) >= EPSILON) {
+        fprintf(stderr, "%s: expected %.3f, got %.3f\n",
+                message, expected, actual);
+        exit(EXIT_FAILURE);
+    }
+}
+
+/**
+  * @brief  满速近似比较（允许 cos(π) 浮点尾巴，误差 < 1 RPM）
+  */
+static void expect_near_rpm(float actual, float expected, const char *message)
+{
+    if (fabsf(actual - expected) >= RPM_EPSILON) {
         fprintf(stderr, "%s: expected %.3f, got %.3f\n",
                 message, expected, actual);
         exit(EXIT_FAILURE);
@@ -155,45 +173,52 @@ static void reset_fixture(void)
 /**
   * @brief  测试1：前进时电机方向是否正确
   * @details 验证底盘前进时，四个电机的转速符号是否正确：
-  *         - 左前轮：正转（6000）
-  *         - 右前轮：反转（-6000）
-  *         - 左后轮：正转（6000）
-  *         - 右后轮：反转（-6000）
+  *         - 满杆 660 过死区后 vx=1，麦轮解算到 CHASSIS_MAX_MOTOR_RPM
+  *         - 左右轮经方向系数后符号相反
   * @note   麦轮底盘前进时，左右轮转向相反
   * @retval None
   */
 static void test_forward_applies_motor_directions(void)
 {
-    const float expected[4] = {6000.0f, -6000.0f, 6000.0f, -6000.0f};
+    const float rpm = CHASSIS_MAX_MOTOR_RPM;
+    const float expected[4] = {rpm, -rpm, rpm, -rpm};
     reset_fixture();
 
-    /* 调用底盘更新函数：前进（vx=660） */
-    Chassis_Update(660, 0, 0, 0.0f, CAR_MODE_MECH, false);
+    /* 调用底盘更新函数：前进（vx=660），头朝前（delta=0） */
+    Chassis_Update(660, 0, 0, 0.0f, ALIGN_FRONT, CAR_MODE_MECH, false);
 
     /* 验证每个电机的PID目标值 */
     for (unsigned int i = 0; i < 4; ++i) {
-        expect_near(speed_pid[i].target, expected[i], "forward target");
+        expect_near_rpm(speed_pid[i].target, expected[i], "forward target");
         if (speed_calls[i] != 1) fail("speed controller must run once");
     }
     if (group_send_calls != 1) fail("normal update must send exactly once");
 }
 
 /**
-  * @brief  测试2：小输入是否有死区
-  * @details 验证非常小的输入值（1个计数）不会被死区过滤掉
-  * @note   死区通常用于过滤噪声，但不应过滤有效的小信号
+  * @brief  测试2：前进死区是否过滤噪声
+  * @details 验证 1 个计数的摇杆噪声被 CHASSIS_FORWARD_DEADZONE 滤掉：
+  *          现网死区 = 6，死区内输出必须为 0，不能误冲车。
   * @retval None
   */
-static void test_small_input_has_no_deadzone(void)
+static void test_forward_deadzone_filters_noise(void)
 {
     reset_fixture();
 
-    /* 调用底盘更新函数：极小的前进输入 */
-    Chassis_Update(1, 0, 0, 0.0f, CAR_MODE_MECH, false);
+    /* 1 计数前进：在死区内，目标必须为 0 */
+    Chassis_Update(1, 0, 0, 0.0f, ALIGN_FRONT, CAR_MODE_MECH, false);
+    if (fabsf(speed_pid[0].target) >= EPSILON ||
+        fabsf(speed_pid[1].target) >= EPSILON ||
+        fabsf(speed_pid[2].target) >= EPSILON ||
+        fabsf(speed_pid[3].target) >= EPSILON) {
+        fail("one-count noise must be removed by CHASSIS_FORWARD_DEADZONE");
+    }
 
-    /* 验证PID目标值不为零 */
+    /* 死区外一点点：必须立刻有非零输出，不能被整段闸死 */
+    Chassis_Update(CHASSIS_FORWARD_DEADZONE + 1, 0, 0, 0.0f,
+                   ALIGN_FRONT, CAR_MODE_MECH, false);
     if (fabsf(speed_pid[0].target) < EPSILON) {
-        fail("one-count input was incorrectly removed by a deadzone");
+        fail("just-above-deadzone input must produce nonzero output");
     }
 }
 
@@ -230,7 +255,7 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
     }
 
     /* 触发安全模式 */
-    Chassis_Update(660, 660, 660, 0.0f, CAR_MODE_GYRO, true);
+    Chassis_Update(660, 660, 660, 0.0f, ALIGN_FRONT, CAR_MODE_GYRO, true);
 
     /* 验证所有状态被清除 */
     for (unsigned int i = 0; i < 4; ++i) {
@@ -253,22 +278,24 @@ static void test_failsafe_clears_state_and_sends_zero_once(void)
 
 /**
   * @brief  测试4：安全模式后是否能恢复正常控制
-  * @details 验证从安全模式恢复后，底盘控制能正常工作
+  * @details 验证从安全模式恢复后，底盘控制能正常工作。
+  *          满杆外的 330 计数过死区后按 (330-6)/(660-6)*MAX_RPM 缩放。
   * @retval None
   */
 static void test_control_recovers_after_failsafe(void)
 {
+    const float expected = (324.0f / 654.0f) * CHASSIS_MAX_MOTOR_RPM;
     reset_fixture();
 
     /* 先触发安全模式 */
-    Chassis_Update(0, 0, 0, 0.0f, CAR_MODE_GYRO, true);
+    Chassis_Update(0, 0, 0, 0.0f, ALIGN_FRONT, CAR_MODE_GYRO, true);
     group_send_calls = 0;  /* 重置发送计数 */
 
-    /* 恢复正常控制 */
-    Chassis_Update(330, 0, 0, 0.0f, CAR_MODE_MECH, false);
+    /* 恢复正常控制：forward=330，MECH，头朝前 */
+    Chassis_Update(330, 0, 0, 0.0f, ALIGN_FRONT, CAR_MODE_MECH, false);
 
-    /* 验证恢复后的控制输出 */
-    expect_near(speed_pid[0].target, 3000.0f, "recovery target");
+    /* 验证恢复后的控制输出（满杆比例缩放，不是旧的 3000） */
+    expect_near_rpm(speed_pid[0].target, expected, "recovery target");
     if (speed_calls[0] != 1 || group_send_calls != 1) {
         fail("normal control did not resume after failsafe");
     }
@@ -276,29 +303,29 @@ static void test_control_recovers_after_failsafe(void)
 
 /**
   * @brief  测试5：陀螺仪模式下平移是否跟随云台朝向
-  * @details 验证在陀螺仪模式下，底盘平移方向会根据云台朝向自动调整
-  * @note   云台朝向为90度（半圆周）时，前进方向变为向左
+  * @details 验证在陀螺仪模式下，底盘平移方向会根据云台朝向自动调整。
+  *          头朝 +90° 时前进 = 底盘向左；跟随 wz 被限到 1.0。
   * @retval None
   */
 static void test_gyro_translation_follows_gimbal_heading(void)
 {
     const float half_pi = 1.57079632679f;  /* 90度（弧度） */
+    const float rpm = CHASSIS_MAX_MOTOR_RPM;
     reset_fixture();
 
-    /* 云台朝向90度时前进 */
-    Chassis_Update(660, 0, 0, half_pi, CAR_MODE_GYRO, false);
+    /* 云台朝向90度时前进（ALIGN_FRONT：跟随误差=90°） */
+    Chassis_Update(660, 0, 0, half_pi, ALIGN_FRONT, CAR_MODE_GYRO, false);
 
-    /* 验证车轮转速（此时前进变为向左平移） */
-    expect_near(speed_pid[0].target, -6000.0f, "gyro FL target");
-    expect_near(speed_pid[1].target, -6000.0f, "gyro FR target");
+    /* vx'=0, vy'=1, wz=1 → 麦轮解算后方向系数下 FL/FR 为负 */
+    expect_near_rpm(speed_pid[0].target, -rpm, "gyro FL target");
+    expect_near_rpm(speed_pid[1].target, -rpm, "gyro FR target");
     expect_near(speed_pid[2].target, 0.0f, "gyro BL target");
     expect_near(speed_pid[3].target, 0.0f, "gyro BR target");
 }
 
 /**
   * @brief  测试6：陀螺仪模式下旋转是否朝向正角度方向
-  * @details 验证在陀螺仪模式下，底盘旋转方向与云台朝向角度一致
-  * @note   正角度应该导致正方向的旋转（所有轮子负转速）
+  * @details 验证在陀螺仪模式下，底盘旋转方向与云台朝向角度一致。
   * @retval None
   */
 static void test_gyro_follow_rotates_toward_positive_angle(void)
@@ -307,12 +334,12 @@ static void test_gyro_follow_rotates_toward_positive_angle(void)
     reset_fixture();
 
     /* 云台朝向90度时旋转 */
-    Chassis_Update(0, 0, 0, half_pi, CAR_MODE_GYRO, false);
+    Chassis_Update(0, 0, 0, half_pi, ALIGN_FRONT, CAR_MODE_GYRO, false);
 
     /* 验证旋转方向 - 正角度应该导致负转速（顺时针） */
     if (speed_pid[0].target >= 0.0f || speed_pid[1].target >= 0.0f ||
         speed_pid[2].target >= 0.0f || speed_pid[3].target >= 0.0f) {
-        fail("positive gimbal angle must command positive chassis rotation");
+        fail("positive gimbal angle must command negative chassis rotation targets");
     }
 }
 
@@ -327,25 +354,51 @@ static void test_follow_deadzone_gain_and_limit(void)
 }
 
 /**
+  * @brief  测试8：ALIGN_BACK 时跟随误差相对 180°
+  * @details 头朝车尾（delta=π）时：
+  *          - FRONT：追 Δθ→π，底盘掉头半圈（wz 饱和）
+  *          - BACK：追 Δθ→π−π=0，底盘不转，W 投影为倒车（vx'=-1）
+  * @retval None
+  */
+static void test_align_back_follows_rear_without_chassis_turn(void)
+{
+    const float pi = 3.14159265359f;
+    const float rpm = CHASSIS_MAX_MOTOR_RPM;
+    reset_fixture();
+
+    /* BACK：头已在车尾，跟随误差 0 → 不掉头，纯倒车平移 */
+    Chassis_Update(660, 0, 0, pi, ALIGN_BACK, CAR_MODE_GYRO, false);
+    /* kinematics: vx=-1,vy=0,wz=0 → wheel=-1 → dir 后 FL/BL 为负、FR/BR 为正 */
+    expect_near_rpm(speed_pid[0].target, -rpm, "back FL reverse");
+    expect_near_rpm(speed_pid[1].target,  rpm, "back FR reverse");
+    expect_near_rpm(speed_pid[2].target, -rpm, "back BL reverse");
+    expect_near_rpm(speed_pid[3].target,  rpm, "back BR reverse");
+
+    /* FRONT：同一夹角仍要追 180° → wz 饱和，平移投影仍为 vx'=-1 */
+    reset_fixture();
+    Chassis_Update(660, 0, 0, pi, ALIGN_FRONT, CAR_MODE_GYRO, false);
+    /* vx'=-1, wz=1 → FL=-2, FR=0, BL=-2, BR=0；scale=MAX/2 */
+    expect_near_rpm(speed_pid[0].target, -rpm, "front FL after chase");
+    expect_near(speed_pid[1].target, 0.0f, "front FR after chase");
+    expect_near_rpm(speed_pid[2].target, -rpm, "front BL after chase");
+    expect_near(speed_pid[3].target, 0.0f, "front BR after chase");
+}
+
+/**
   * @brief  主函数 - 测试入口
-  * @details 依次执行所有6个测试用例：
-  *          1. 前进电机方向测试
-  *          2. 小输入死区测试
-  *          3. 安全模式清除测试
-  *          4. 安全模式恢复测试
-  *          5. 陀螺仪平移测试
-  *          6. 陀螺仪旋转测试
+  * @details 依次执行所有测试用例
   * @retval int 返回EXIT_SUCCESS表示所有测试通过
   */
 int main(void)
 {
     test_forward_applies_motor_directions();       /* 测试1 */
-    test_small_input_has_no_deadzone();            /* 测试2 */
+    test_forward_deadzone_filters_noise();         /* 测试2 */
     test_failsafe_clears_state_and_sends_zero_once();  /* 测试3 */
     test_control_recovers_after_failsafe();        /* 测试4 */
     test_gyro_translation_follows_gimbal_heading(); /* 测试5 */
     test_gyro_follow_rotates_toward_positive_angle(); /* 测试6 */
     test_follow_deadzone_gain_and_limit();          /* 测试7 */
-    puts("7 chassis control tests passed");
+    test_align_back_follows_rear_without_chassis_turn(); /* 测试8 */
+    puts("8 chassis control tests passed");
     return EXIT_SUCCESS;
 }

@@ -27,14 +27,12 @@
 #include "car_control.h"
 #include "communicate.h"   /* 板间通信模块 */
 #include "shoot.h"         /* 拨弹控制模块 */
-#include "cap_protocol.h"  /* 超电控制帧 0x222 */
 #include "rp_config.h"
 
 
 void StartCtrlTask(void *argument)
 {
     uint32_t next_wake;
-    uint16_t cap_tx_cnt = 0;
     (void)argument;  /* 消除未使用参数警告 */
 
     /* ====== 系统初始化阶段 ====== */
@@ -70,22 +68,21 @@ void StartCtrlTask(void *argument)
         /* 拨弹：消费整车标志，驱动拨盘 RM3508，并写 is_fric_on */
         Shoot_Update(&hero_car, chassis_failsafe);
 
-        /* 通过 0xD1 发给上层板（pitch + 摩擦轮标志） */
-        board_tx_info.pitch_encoder_tar = hero_gimbal.pitch.target_mec_angle;
+        /* 通过 0xD1 发给上层板（pitch 目标 + 域标志 + 摩擦轮标志）
+           GYRO/SPIN：发 IMU 域目标，pitch_use_imu=1，上层用自带 IMU 闭环
+           MECH：发编码器机械目标，pitch_use_imu=0，上层编码器闭环 */
+        const bool pitch_imu_domain =
+            (hero_gimbal.mode == GIMBAL_MODE_GYRO); /* SPIN 在云台侧也映射为 GYRO */
+        board_tx_info.pitch_encoder_tar =
+            pitch_imu_domain ? hero_gimbal.pitch.target_imu_angle
+                             : hero_gimbal.pitch.target_mec_angle;
+        board_tx_info.pitch_use_imu = pitch_imu_domain ? 1U : 0U;
         board_tx_info.pitch_enable =
             (hero_gimbal.mode != GIMBAL_MODE_SLEEP &&
              hero_gimbal.mode != GIMBAL_MODE_INIT &&
              rc_sensor.work_state == DEV_ONLINE &&
              rc_sensor.errno == NONE_ERR) ? 1U : 0U;
         Board_Tx_D1();
-
-        /* 超电控制帧 0x222：按 CAP_TX_PERIOD_TICKS 分频（20ms 一帧）。
-           放在 2ms 环里而不是裁判回调里，训练没裁判系统也照发 */
-        cap_tx_cnt++;
-        if (cap_tx_cnt >= CAP_TX_PERIOD_TICKS) {
-            cap_tx_cnt = 0;
-            cap_send_2E();
-        }
 
         /* 底盘三轴通道：按输入源取摇杆 ch3/ch2/ch0 或键鼠 WASD 折算值，
            统一为 SBUS 计数域，底盘模块不需要知道操作手用的是哪套 */
@@ -96,6 +93,7 @@ void StartCtrlTask(void *argument)
                        chassis_lat,                          /* 左右平移通道 */
                        chassis_rot,                          /* 自旋转通道 */
                        hero_gimbal.yaw.feedback_mec_angle,   /* 云台相对车头夹角 Δθ（弧度） */
+                       hero_gimbal.yaw.align_dir,            /* 双向就近对齐：FRONT/BACK */
                        hero_car.mode,                        /* 整车当前模式 */
                        chassis_failsafe);                    /* 失联保护标志 */
 

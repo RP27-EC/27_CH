@@ -13,10 +13,11 @@
 #include "chassis_kinematics.h"  /* 麦轮运动学解算模块 */
 #include "chassis_motor.h"       /* 底盘电机驱动模块 */
 #include "pid.h"                 /* PID控制器模块 */
-#include "power_model.h"         /* 功率模型与功率预算 */
-#include "cap.h"                 /* 超级电容（放宽功率用） */
 
 #include <math.h>
+
+/** @brief 圆周率，与 gimbal.c 保持一致（双向对齐 BACK=180° 用） */
+#define CHASSIS_PI 3.14159265358979323846f
 
 static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_FL_DIRECTION,  /* 前左轮方向系数 */
@@ -138,71 +139,6 @@ void Chassis_Init(void)
 
 
 /**
-  * @brief  底盘功率限制
-  * @details 挂在「PID 算完之后、CAN 发出之前」这道缝上：
-  *          1. 用二次功率模型把四轮的「电流指令 + 当前转速」折算成功率
-  *          2. 取功率预算：训练/比赛共用 Power_Budget_Get()，超电放电中再放宽
-  *          3. 预测功率超预算时，按比例压低每轮的目标功率，再反解回电流
-  *
-  *          不做缓冲能量的保守兜底（例程里 buffer<25 就把输出乘 0 的那种）：
-  *          训练没有裁判系统，缓冲能量恒为 0，那条路会直接把底盘打死。
-  *          这里只按「瓦特预算」一层限制，够用且不会误伤。
-  */
-static void Chassis_Power_Limit_Apply(void)
-{
-    float wheel_power[CHASSIS_WHEEL_COUNT];
-    float power_fit = 0.0f;
-    float max_power;
-    float power_rate;
-    unsigned int i;
-
-    /* 1. 预测四轮功率（只累加消耗功率，制动回馈不占预算） */
-    for (i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
-        wheel_power[i] = Power_Predict(Chassis_Motor[i].tx_info->torque,
-                                       (float)Chassis_Motor[i].rx_info->encoder_speed);
-        if (wheel_power[i] > 0.0f) {
-            power_fit += wheel_power[i];
-        }
-    }
-
-    /* 2. 取功率预算 */
-    max_power = Power_Budget_Get();
-
-    /* 超电放电中且电压够，才放宽功率；没接超电板 / 电压不足一律不放宽 */
-    if (cap.Y_O_N != 0U &&
-        cap.status->status == DEV_ONLINE &&
-        cap.info->cap_Ucr > CAP_RELAX_V_TH) {
-        max_power += (cap.info->cap_Ucr - CAP_RELAX_V_TH) * CAP_RELAX_K + CAP_RELAX_BASE_W;
-    }
-
-    /* 放宽封顶：电容再满也不超过 CHASSIS_POWER_BUDGET_MAX_W */
-    if (max_power > CHASSIS_POWER_BUDGET_MAX_W) {
-        max_power = CHASSIS_POWER_BUDGET_MAX_W;
-    }
-
-    /* 3. 没超预算就不干预 PID 的输出 */
-    if (power_fit <= 0.0f || power_fit <= max_power) {
-        return;
-    }
-
-    /* 4. 按比例压低每轮目标功率，再反解回电流 */
-    power_rate = max_power / power_fit;
-
-    for (i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
-        float solved = Power_Solve_Current(wheel_power[i] * power_rate,
-                                           (float)Chassis_Motor[i].rx_info->encoder_speed,
-                                           Chassis_Motor[i].tx_info->torque);
-
-        /* 只减不增：限流器永远不该比 PID 更激进 */
-        if (fabsf(solved) > fabsf(Chassis_Motor[i].tx_info->torque)) {
-            solved = Chassis_Motor[i].tx_info->torque;
-        }
-        Chassis_Motor[i].tx_info->torque = solved;
-    }
-}
-
-
-/**
   * @brief  底盘控制更新函数
   * @details 根据遥控器输入的三轴运动指令，通过麦轮运动学解算，
   *          计算并设置四个电机的目标转速，实现底盘全向运动。
@@ -210,22 +146,28 @@ static void Chassis_Power_Limit_Apply(void)
   *          控制流程：
   *          1. 检查是否需要失联保护或处于休眠/初始化模式
   *          2. 将遥控器通道值归一化到[-1, 1]
-  *          3. 在陀螺仪/小陀螺模式下进行坐标系旋转：
-  *             将云台坐标系的输入旋转delta_theta角度到底盘坐标系
-  *          4. 调用麦轮运动学解算，计算四个轮子的目标转速
-  *          5. 应用轮子方向系数，设置电机速度目标
-  *          6. 通过CAN总线批量发送控制指令
+  *          3. MECH/GYRO/SPIN 统一做坐标系旋转：
+  *             操作手输入在云台坐标系（视线方向），按 delta_theta 投影到底盘系。
+  *             头在车尾（Δθ≈180°）时 cos(180°)=-1，W 自动物理倒车，
+  *             操作手视角仍为「向准星前方走」，不需要手写 W/S 反转。
+  *          4. GYRO 跟随误差按双向就近对齐：ALIGN_FRONT 追 0°，ALIGN_BACK 追 180°
+  *             （align_dir 由云台侧 88°/91° 迟滞维护；SPIN 期间该状态被一票否决冻结）
+  *          5. 调用麦轮运动学解算，计算四个轮子的目标转速
+  *          6. 应用轮子方向系数，设置电机速度目标
+  *          7. 通过CAN总线批量发送控制指令
   *
-  * @param  forward    : 前后方向遥控器通道值，正值向前，范围[-660, 660]
-  * @param  lateral    : 左右方向遥控器通道值，正值向左，范围[-660, 660]
+  * @param  forward    : 前后方向遥控器通道值，正值向前，范围[-660, 660]（云台坐标系）
+  * @param  lateral    : 左右方向遥控器通道值，正值向左，范围[-660, 660]（云台坐标系）
   * @param  rotate     : 旋转方向遥控器通道值，正值逆时针，范围[-660, 660]
   * @param  delta_theta: 云台相对车头的夹角（弧度），用于坐标系旋转
-  * @param  car_mode   : 整车当前模式，决定是否进行坐标旋转
+  * @param  align_dir  : 双向就近对齐方向，GYRO 跟随误差用（FRONT=0° / BACK=180°）
+  * @param  car_mode   : 整车当前模式，决定跟随/自旋/手动旋转
   * @param  failsafe   : 失联保护标志，true时立即停止底盘
   * @retval None
   */
 void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
-                    float delta_theta, CarMode_e car_mode, bool failsafe)
+                    float delta_theta, AlignDir_e align_dir,
+                    CarMode_e car_mode, bool failsafe)
 {
     float wheel_rpm[CHASSIS_WHEEL_COUNT];  /* 四个轮子的目标转速(RPM) */
 
@@ -249,8 +191,10 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
         return;
     }
 
-    //速度从云台坐标系转换到底盘坐标系
-    if (car_mode == CAR_MODE_GYRO || car_mode == CAR_MODE_SPIN) {
+    /* 速度从云台坐标系转换到底盘坐标系：MECH / GYRO / SPIN 统一投影。
+       符号约定沿用现网 GYRO 公式（与 vy=-lateral 配套），不得改向。 */
+    if (car_mode == CAR_MODE_GYRO || car_mode == CAR_MODE_SPIN ||
+        car_mode == CAR_MODE_MECH) {
         /* 预计算三角函数值 */
         const float cos_theta = cosf(delta_theta);
         const float sin_theta = sinf(delta_theta);
@@ -276,7 +220,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                 vx *= trans_scale;
                 vy *= trans_scale;
             }
-        } else {
+        } else if (car_mode == CAR_MODE_GYRO) {
             /* 右摇杆回中时立即清空前馈，避免低通滤波残值造成松手后继续旋转。 */
             if (fabsf((float)rotate) <= (float)CHASSIS_ROTATE_DEADZONE) {
                 chassis_yaw_ff_filtered = 0.0f;
@@ -289,9 +233,24 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                     CHASSIS_YAW_FF_LPF_ALPHA * wz;
                     //得到摇杆前馈的值
             }
-            wz = Chassis_Calc_Follow_Wz_Norm(delta_theta) + //偏移角度经过线性非线性误差叠加
+
+            /* 双向就近对齐：误差相对「目标轴」而不是永远相对车头。
+               FRONT：追 Δθ→0；BACK：追 Δθ→180°（车尾对准头），
+               底盘少掉头半圈，平移投影仍用真实 delta_theta，W 恒为视线前方。 */
+            float follow_err = delta_theta;
+            if (align_dir == ALIGN_BACK) {
+                follow_err = delta_theta - CHASSIS_PI;
+                while (follow_err >  CHASSIS_PI) follow_err -= 2.0f * CHASSIS_PI;
+                while (follow_err < -CHASSIS_PI) follow_err += 2.0f * CHASSIS_PI;
+            }
+
+            wz = Chassis_Calc_Follow_Wz_Norm(follow_err) + //偏移角度经过线性非线性误差叠加
                  CHASSIS_YAW_FF_GAIN * chassis_yaw_ff_filtered;//摇杆前馈乘以比例系数
             wz = Chassis_Clamp_Normalized(wz);
+        } else {
+            /* MECH：云台就近锁轴（0°或180°），ch0 手动转底盘，不做跟随。
+               平移已经投影到云台坐标系——头锁在车尾时 W 自动倒车。 */
+            chassis_yaw_ff_filtered = 0.0f;
         }
     } else {
         chassis_yaw_ff_filtered = 0.0f;
@@ -312,9 +271,6 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
 
         Chassis_Motor[i].single_set_speed(&Chassis_Motor[i]);
     }
-
-    /* PID 算完、CAN 发出之前：按功率预算重新约束四轮电流 */
-    Chassis_Power_Limit_Apply();
 
     /* 一次CAN帧发送4个电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);

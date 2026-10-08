@@ -26,14 +26,14 @@
 #define YAW_KT_ENCODER_MIDDLE       (25823.0f + 32768.0f)
 
 /* Pitch 轴软限位 (rad) */
-#define PITCH_MIN_DEG               (-12.0f)
-#define PITCH_MAX_DEG               (20.0535f) /* 编码器坐标向上最大 0.35rad */
+#define PITCH_MIN_DEG               (-18.0f)//从-15降低
+#define PITCH_MAX_DEG               (35.0f)  //从30往上升高
 #define PITCH_MIN_MEC_ANGLE         (PITCH_MIN_DEG * DEG_TO_RAD)
-#define PITCH_MAX_MEC_ANGLE         (0.35f) /* 机械目标硬软件上限，避免超过 +0.35rad */
+#define PITCH_MAX_MEC_ANGLE         (PITCH_MAX_DEG * DEG_TO_RAD) /* 机械目标硬软件上限，避免超过 +0.35rad */
 
 /* 摇杆控制灵敏度 (2ms 周期下的积分步长) */
-#define RC_YAW_MECH_SENSITIVITY     (0.0004f)    /* 机械模式 Yaw 灵敏度 */
-#define RC_YAW_GYRO_DEADZONE        (20.0f)      /* GYRO 模式摇杆死区，过滤中位偏差，此处的数值是摇杆通道值 */
+#define RC_YAW_MECH_SENSITIVITY     (0.0001f)    /* 机械模式 Yaw 灵敏度 */
+#define RC_YAW_GYRO_DEADZONE        (40.0f)      /* GYRO 模式摇杆死区，过滤中位偏差，此处的数值是摇杆通道值 */
 
 #define RC_PITCH_DEG_PER_TICK       (0.0002865f)
 #define RC_PITCH_MECH_SENSITIVITY   (RC_PITCH_DEG_PER_TICK * DEG_TO_RAD)
@@ -44,7 +44,7 @@
    所以下面两个量纲是「rad / 每帧滤波后鼠标位移」，不是每 2ms。
    符号约定：鼠标右移 = 瞄准向右 = 目标角减小；鼠标上移 = 抬头 = 目标角增大。
    上机手感不对就调这两个数，别去动闸门。 */
-#define MOUSE_YAW_SENS              (0.002f)    /* 鼠标横向 -> Yaw 目标角增量 (rad) */
+#define MOUSE_YAW_SENS              (0.001f)    /* 鼠标横向 -> Yaw 目标角增量 (rad) */
 #define MOUSE_PITCH_SENS            (0.0012f)   /* 鼠标纵向 -> Pitch 目标角增量 (rad) */
 
 /* Ctrl + WASD 单击 = 云台目标角步进微调（度 -> 弧度）。
@@ -52,6 +52,28 @@
    Ctrl+Shift 同按走大步距。 */
 #define KEY_TRIM_STEP_SMALL         (0.05f * DEG_TO_RAD)
 #define KEY_TRIM_STEP_LARGE         (0.2f  * DEG_TO_RAD)
+
+/* ---------------- 双向就近对齐（88°/91° 迟滞，上机调参） ----------------
+   夹角 < 88°：锁车头轴（目标 0°）
+   夹角 > 91°：锁车尾轴（目标 180°）
+   88°~91°：保持上一拍方向，防 90° 临界横跳。
+   小陀螺期间对齐方向一票否决（不更新），退出后再冷却，
+   禁止自旋时相对夹角扫圈导致 FRONT/BACK 高频翻转。 */
+#define YAW_ALIGN_FRONT_MAX_DEG     (88.0f)
+#define YAW_ALIGN_BACK_MIN_DEG      (91.0f)
+#define YAW_ALIGN_POST_SPIN_TICKS   (250U)  /* 退出小陀螺后的否决冷却：250×2ms=0.5s */
+
+/* ---------------- 换头/掉头 ----------------
+   触发：遥控 S1上+S2上+拨轮上，或键鼠 R（MECH / GYRO / SPIN）。
+   - GYRO/SPIN：世界系目标角 +180°，云台快转，底盘跟头；
+     有滑环，不设方向/圈数限制。
+   - MECH：粘性锁轴 FRONT↔BACK（0° ↔ 180°）。头锁死时 |delta| 很小，
+     88°/91° 迟滞翻不到车尾，机械模式必须手动锁轴。
+   进行中屏蔽 ch0/鼠标瞄准；误差≤5° 或超时 1.5s 结束。
+   换头期间冻结对齐迟滞；结束后按真实轴向立刻写 align_dir，
+   底盘 follow_err≈0，W = 倒车，不再空转半圈「假换头」。 */
+#define YAW_TURN_ARRIVE_ERR_DEG     (5.0f)
+#define YAW_TURN_TIMEOUT_TICKS      (750U)  /* 750×2ms=1.5s */
 
 /* 云台运行模式 */
 typedef enum {
@@ -77,7 +99,7 @@ typedef enum {
 /* Yaw 轴执行结构体 */
 typedef struct {
     /* 机械模式数据 (底盘相对坐标系) */
-    float target_mec_angle;     /* 目标机械角度 (rad) */
+    float target_mec_angle;     /* 目标机械角度 (rad)：按 align_dir 锁 0° 或 180° */
     float feedback_mec_angle;   /* 当前机械角度 (rad, 给底盘跟随使用) */
     float feedback_mec_speed;   /* 当前电机转速 (rad/s) */
 
@@ -87,23 +109,38 @@ typedef struct {
     float imu_speed;            /* 上层 C 板发来的绝对角速度 yaw_v (rad/s) */
     float gyro_sensitivity;      /* GYRO 模式每周期、每单位摇杆输入的目标角增量 (rad) */
 
+    /* 双向就近对齐：MECH 锁轴目标 + GYRO 底盘跟随误差共用同一结论 */
+    AlignDir_e align_dir;       /* FRONT=锁0° / BACK=锁180°，88°/91° 迟滞维护 */
+    uint16_t align_veto_cnt;    /* >0 时禁止更新 align_dir（小陀螺/换头及退出冷却） */
+
+    /* 换头/掉头：GYRO/SPIN 世界系 +180°；MECH 粘性锁轴 FRONT↔BACK 翻转 */
+    bool turn_active;           /* 换头进行中：屏蔽 ch0/鼠标瞄准 + 冻结对齐迟滞 */
+    bool turn_finish;           /* 最近一次换头已结束（到角或超时） */
+    uint16_t turn_time;         /* 换头已进行拍数 */
+
     /* 控制模式与双环 PID */
     GimbalPidMode_e pid_mode;   /* 当前激活的 PID 模式 */
-  
+
     pid_ctrl_t mec_angle_pid;//机械模式pid
     pid_ctrl_t mec_speed_pid;
 
     pid_ctrl_t gyro_angle_pid;//陀螺仪模式pid
     pid_ctrl_t gyro_speed_pid;
-    
+
     int16_t give_current;       /* 最终下发力矩电流 */
 } Gimbal_Yaw_t;
 
 
-/* Pitch 轴目标管理 */
+/* Pitch 轴目标管理
+   MECH：目标在编码器机械域（下层只生成目标，上层 C 板闭环）
+   GYRO/SPIN：目标在 IMU 世界域累加，随 0xD1 的 pitch_use_imu=1 发给上层，
+              上层用自带 IMU 双环 + 重力补偿闭环（有滑环云台同理，pitch 不限圈数） */
 typedef struct {
-    float target_mec_angle;     /* 目标机械角度 (rad) */
-    float min_limit;            /* 机械下限位 */
+    float target_mec_angle;     /* MECH：编码器机械目标角 (rad) */
+    float target_imu_angle;     /* GYRO/SPIN：IMU 域 pitch 目标角 (rad) */
+    float imu_angle;            /* 上层 C 板 0x022 回传 pitch 角 (rad) */
+    float imu_speed;            /* 上层 C 板 0x022 回传 pitch 角速度 (rad/s) */
+    float min_limit;            /* 机械下限位（与上层 mec_min_rad 一致） */
     float max_limit;            /* 机械上限位 */
 } Gimbal_Pitch_Target_t;
 

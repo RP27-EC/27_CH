@@ -11,10 +11,14 @@
 #define FRIC_STATE_WORK              (1U << 1)  /* 摩擦轮电机全部在线 */
 
 typedef struct {
-    float yaw_imu;          /* 空间绝对 Yaw 角度 (rad) */
-    float yaw_v;            /* 空间绝对 Yaw 陀螺仪角速度 (rad/s) */
+    float yaw_imu;          /* 空间绝对 Yaw 角度 (rad) —— 0x021 */
+    float yaw_v;            /* 空间绝对 Yaw 陀螺仪角速度 (rad/s) —— 0x021 */
+    float pitch_imu;        /* 云台 Pitch 角 (rad) —— 0x022，上层 C 板 IMU */
+    float pitch_v;          /* 云台 Pitch 角速度 (rad/s) —— 0x022 */
     uint16_t offline_cnt;   /* 0x021 掉线计时器 */
+    uint16_t pitch_offline_cnt; /* 0x022 掉线计时器 */
     bool is_online;         /* 0x021 上层板在线标志 */
+    bool is_pitch_online;   /* 0x022 pitch IMU 在线标志 */
 
     /* ---- 0x023 状态帧（摩擦轮就绪安全锁用） ---- */
     uint8_t  fric_state;        /* 原始 flags 字节 */
@@ -25,8 +29,9 @@ typedef struct {
 } Board_Rx_Info_t;
 
 typedef struct {
-    float pitch_encoder_tar; /* 编码器机械目标角(rad)，与上位机字段保持一致 */
+    float pitch_encoder_tar; /* MECH：编码器机械目标角；GYRO：IMU 域目标角 (rad) */
     uint8_t pitch_enable;
+    uint8_t pitch_use_imu;   /* 1=GYRO/SPIN：上层按 IMU 域闭环；0=MECH：编码器闭环 */
     uint8_t is_fric_on;      /* 下层->上层：摩擦轮开启（拨弹总开关且未卡弹停机） */
 } Board_Tx_Info_t;
 
@@ -35,6 +40,7 @@ extern Board_Tx_Info_t board_tx_info;
 
 void Communicate_Init(void);
 void Board_Rx_C1(const uint8_t *rxBuf);
+void Board_Rx_Pitch(const uint8_t *rxBuf);
 void Board_Rx_State(const uint8_t *rxBuf);
 void Board_Tx_D1(void);
 void Communicate_Check_Timeout(void);

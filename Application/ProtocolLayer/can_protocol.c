@@ -16,7 +16,6 @@
 #include "gimbal_motor.h"
 #include "shoot_motor.h"   /* 拨弹 RM3508 */
 #include "cap_protocol.h"
-#include "judge.h"
 #include "cap.h"
 #include "kt_yaw_motor.h"
 #include "communicate.h"   /* 引入板间通信解包模块 */
@@ -66,6 +65,7 @@ void CAN1_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
   * @brief  CAN2接收中断分发函数
   * @details 处理CAN2总线上的数据帧：
   *          - 0x021：上层C板 yaw IMU（板间通信）
+  *          - 0x022：上层C板 pitch IMU（板间通信）
   *          - 0x205：拨弹 RM3508 反馈
   *
   * @param  rxId  : 接收到的CAN帧ID
@@ -77,6 +77,10 @@ void CAN2_rxDataHandler(uint32_t rxId, uint8_t *rxBuf)
     switch (rxId) {
         case SLAVE_RX_ID: // 0x021 —— 上层C板发来的yaw IMU数据
             Board_Rx_C1(rxBuf);
+            break;
+
+        case SLAVE_RX_PITCH_IMU_ID: // 0x022 —— 上层C板发来的pitch IMU数据
+            Board_Rx_Pitch(rxBuf);
             break;
 
         case SLAVE_RX_STATE_ID: // 0x023 —— 上层C板状态帧（摩擦轮就绪等）

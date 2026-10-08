@@ -6,9 +6,13 @@
   *
   *                   1. KT9025编码器解算：将16位原始编码器值转换为相对车头的标准弧度
   *                   2. 云台初始化与自动寻零：上电后自动对齐机械零位
-  *                   3. 机械模式（MECH）：Yaw轴锁死在底盘正前方，随底盘旋转
+  *                   3. 机械模式（MECH）：Yaw就近锁轴——|Δθ|<88°锁车头0°，>91°锁车尾180°
   *                   4. 陀螺仪自稳模式（GYRO）：基于大地坐标系的空间自稳跟随
-  *                   5. 小陀螺模式（SPIN）：底盘自旋时云台保持空间朝向不变
+  *                   5. 小陀螺模式（SPIN）：底盘自旋时云台保持空间朝向不变；
+  *                      对齐方向一票否决，禁止自旋扫圈触发 FRONT/BACK 翻转
+  *                   6. 换头/掉头（MECH/GYRO/SPIN）：GYRO/SPIN 目标角+180°；
+  *                      MECH 粘性锁轴 FRONT↔BACK 翻转；到角5°或超时1.5s结束；
+  *                      结束后立刻按真实轴向对齐，底盘倒车不空转半圈
 
   
   *                   云台模式状态机：
@@ -67,20 +71,23 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->init_timer = 0;
 
     /* Pitch轴软限位设置（单位：弧度） */
-    gimbal->pitch.min_limit = PITCH_MIN_MEC_ANGLE;   /* 下限约-12度 */
-    gimbal->pitch.max_limit = PITCH_MAX_MEC_ANGLE;   /* 遥控目标上限 +0.35rad */
+    gimbal->pitch.min_limit = PITCH_MIN_MEC_ANGLE;
+    gimbal->pitch.max_limit = PITCH_MAX_MEC_ANGLE;
     gimbal->pitch.target_mec_angle = 0.0f;
+    gimbal->pitch.target_imu_angle = 0.0f;   /* GYRO 域 pitch 目标，切入陀螺仪时与 IMU 对齐 */
+    gimbal->pitch.imu_angle = 0.0f;
+    gimbal->pitch.imu_speed = 0.0f;
 
 
   /* 机械模式参数，+不加测速头 */
-    gimbal->yaw.mec_angle_pid.kp = 8.0f;
+    gimbal->yaw.mec_angle_pid.kp = 18.0f;
     gimbal->yaw.mec_angle_pid.ki = 0.0f;
     gimbal->yaw.mec_angle_pid.kd = 0.0f;
     gimbal->yaw.mec_angle_pid.out_max = 12.0f;
     gimbal->yaw.mec_angle_pid.integral_max = 0.0f;
     gimbal->yaw.mec_angle_pid.a = 1.0f;
-    gimbal->yaw.mec_speed_pid.kp = 240.0f;
-    gimbal->yaw.mec_speed_pid.ki = 0.5f;
+    gimbal->yaw.mec_speed_pid.kp = 320.0f;
+    gimbal->yaw.mec_speed_pid.ki = 0.0f;
     gimbal->yaw.mec_speed_pid.kd = 0.0f;
     gimbal->yaw.mec_speed_pid.out_max = 2000.0f;//限幅已经修改成正常落地，调试用200
     gimbal->yaw.mec_speed_pid.integral_max = 400.0f;
@@ -88,15 +95,15 @@ void Gimbal_Init(Gimbal_t *gimbal) {
 
 
     /* GYRO模式参数：当前未加测速头 */
-    gimbal->yaw.gyro_angle_pid.kp = 10.0f;
+    gimbal->yaw.gyro_angle_pid.kp = 25.0f;
     gimbal->yaw.gyro_angle_pid.ki = 0.0f;
     gimbal->yaw.gyro_angle_pid.kd = 0.0f;
     /* 陀螺仪角度环输出目标角速度限制,attention防止反馈异常时高速冲转。 */
     gimbal->yaw.gyro_angle_pid.out_max = 10.0f;    //最上面为12
     gimbal->yaw.gyro_angle_pid.integral_max = 0.0f;
     gimbal->yaw.gyro_angle_pid.a = 1.0f;
-    gimbal->yaw.gyro_speed_pid.kp = 410.0f;
-    gimbal->yaw.gyro_speed_pid.ki = 0.03f;
+    gimbal->yaw.gyro_speed_pid.kp = 560.0f;
+    gimbal->yaw.gyro_speed_pid.ki = 0.0f;
     gimbal->yaw.gyro_speed_pid.kd = 0.0f;
     /* 陀螺仪速度环输出是最终电流指令，先限制为安全调试值，避免
      * IMU反馈异常或方向不一致时直接满电流疯转。 */
@@ -112,7 +119,14 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.target_imu_angle = 0.0f;      /* IMU目标角 */
     gimbal->yaw.imu_angle = 0.0f;             /* IMU反馈角（来自上层C板） */
     gimbal->yaw.imu_speed = 0.0f;             /* IMU反馈速度（来自上层C板） */
-    gimbal->yaw.gyro_sensitivity = 0.00001f; /* 灵敏度*/
+    gimbal->yaw.gyro_sensitivity = 0.000005f; /* 灵敏度对半砍了现在*/
+
+    gimbal->yaw.align_dir = ALIGN_FRONT;      /* 就近对齐默认锁车头轴 */
+    gimbal->yaw.align_veto_cnt = 0U;          /* 无否决 */
+
+    gimbal->yaw.turn_active = false;          /* 无换头 */
+    gimbal->yaw.turn_finish = true;           /* 上电视为已就绪（无未完成换头） */
+    gimbal->yaw.turn_time = 0U;
 
     gimbal->yaw.give_current = 0;             /* 输出电流清零 */
     gimbal->yaw.pid_mode = GIMBAL_PID_MEC;    /* 默认PID模式为机械模式 */
@@ -152,7 +166,11 @@ static void Gimbal_Init_Step(Gimbal_t *gimbal) {
 
 static void Gimbal_Mech_Update(Gimbal_t *gimbal) {
     gimbal->yaw.pid_mode = GIMBAL_PID_MEC;   /* 切换到机械模式PID */
-    gimbal->yaw.target_mec_angle = 0.0f;     /* 锁死在底盘正前方 */
+    /* 就近锁轴：FRONT=0°（车头），BACK=180°（车尾）。
+       与 88°/91° 迟滞配合后，云台相对当前轴的行程永远 ≤90°，
+       不会从车头大幅甩到车尾扯线丢视野。 */
+    gimbal->yaw.target_mec_angle =
+        (gimbal->yaw.align_dir == ALIGN_BACK) ? PI : 0.0f;
 }
 
 
@@ -209,28 +227,112 @@ static void Gimbal_Key_Yaw_Update(Gimbal_t *gimbal) {
   * @brief  键鼠模式下的 Pitch 目标角更新
   * @details 鼠标纵向位移累加（同样吃 frame_seq 闸门）+ Ctrl+W/S 步进微调。
   *          软限位钳位由调用方 Gimbal_Pitch_Update 统一做，这里只管累加。
+  *          target 由调用方传入：MECH 写机械域，GYRO 写 IMU 域。
   *
-  * @param  gimbal : 云台对象指针
+  * @param  target : 目标角累加指针 (rad)
   * @retval None
   */
-static void Gimbal_Key_Pitch_Update(Gimbal_t *gimbal) {
+static void Gimbal_Key_Pitch_Update(float *target) {
     static uint16_t last_seq = 0;   /* 上次消费过的 DBUS 帧序号 */
 
     /* 鼠标纵向：鼠标上移 = 抬头 = 目标角增大 */
     if (rc_sensor.info->frame_seq != last_seq) {
         last_seq = rc_sensor.info->frame_seq;
-        gimbal->pitch.target_mec_angle += rc_sensor.info->mouse_y * MOUSE_PITCH_SENS;
+        *target += rc_sensor.info->mouse_y * MOUSE_PITCH_SENS;
     }
 
     /* Ctrl + W/S：W = 抬头 = 目标角增大 */
     if (rc_sensor.info->Ctrl.value != 0U) {
         const float step = Gimbal_Trim_Step();
         if (rc_sensor.info->W.status == release_to_press) {
-            gimbal->pitch.target_mec_angle += step;
+            *target += step;
         }
         if (rc_sensor.info->S.status == release_to_press) {
-            gimbal->pitch.target_mec_angle -= step;
+            *target -= step;
         }
+    }
+}
+
+
+/**
+  * @brief  换头结束后按真实轴向立刻对齐
+  * @details 换头完成时头多半已对车尾（|delta|≈180°）。
+  *          若继续吃 FRONT + 冷却，底盘会按 follow_err≈180° 掉头半圈，
+  *          世界系转过 180° 会被底盘「转回去」，操作手看到的是没换头。
+  *          这里直接按当前 delta 轴向写 align_dir，并清零否决计数，
+  *          底盘当拍起 follow_err≈0，W = 倒车暴退（有滑环，不担心绕线）。
+  */
+static void Gimbal_Turn_Apply_Align_After(Gimbal_t *gimbal) {
+    const float abs_deg =
+        fabsf(gimbal->yaw.feedback_mec_angle) * (180.0f / PI);
+    if (abs_deg > YAW_ALIGN_BACK_MIN_DEG) {
+        gimbal->yaw.align_dir = ALIGN_BACK;
+    } else if (abs_deg < YAW_ALIGN_FRONT_MAX_DEG) {
+        gimbal->yaw.align_dir = ALIGN_FRONT;
+    }
+    /* 88°~91°：保持刚写入的方向，不在此处引入迟滞横跳 */
+    gimbal->yaw.align_veto_cnt = 0U;
+}
+
+/**
+  * @brief  换头/掉头状态机（MECH / GYRO / SPIN）
+  * @details 消费 Car_t.flags.is_turn_cmd 脉冲：
+  *          - GYRO / SPIN：世界系目标角 +180°，云台快转，底盘跟头
+  *          - MECH：粘性锁轴 FRONT↔BACK 翻转（0° ↔ 180°），
+  *            不能靠 88°/91° 迟滞——头锁死在 0° 时 |delta| 永远很小，
+  *            迟滞翻不到 BACK，机械模式必须手动锁车尾。
+  *          SLEEP / INIT 否决并中止未完成换头。
+  *          必须在双向对齐迟滞之前调用：turn_active 期间冻结 align_dir。
+  *          到角或超时后立刻按真实轴向对齐，避免底盘空转半圈。
+  */
+static void Gimbal_Turn_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
+    const bool mode_ok = (car_mode == CAR_MODE_MECH ||
+                          car_mode == CAR_MODE_GYRO ||
+                          car_mode == CAR_MODE_SPIN);
+
+    if (!mode_ok) {
+        /* 休眠/初始化：强制否决，未完成换头直接中止 */
+        gimbal->yaw.turn_active = false;
+        gimbal->yaw.turn_time = 0U;
+        return;
+    }
+
+    if (gimbal->yaw.turn_active) {
+        gimbal->yaw.turn_time++;
+        /* 到位误差：GYRO 看世界系 IMU；MECH 看编码器相对锁轴目标 */
+        float err;
+        if (car_mode == CAR_MODE_MECH) {
+            err = fabsf(Calc_Shortest_Angle_Err(
+                gimbal->yaw.target_mec_angle, gimbal->yaw.feedback_mec_angle));
+        } else {
+            err = fabsf(Angle_Normalize_PI(
+                gimbal->yaw.target_imu_angle - gimbal->yaw.imu_angle));
+        }
+        const float arrive_rad = YAW_TURN_ARRIVE_ERR_DEG * DEG_TO_RAD;
+        if (err <= arrive_rad ||
+            gimbal->yaw.turn_time >= YAW_TURN_TIMEOUT_TICKS) {
+            gimbal->yaw.turn_active = false;
+            gimbal->yaw.turn_finish = true;   /* 到角或超时都算本轮结束 */
+            gimbal->yaw.turn_time = 0U;
+            Gimbal_Turn_Apply_Align_After(gimbal);
+        }
+        return;
+    }
+
+    /* 空闲：边沿脉冲启动换头（进行中不重复触发） */
+    if (hero_car.flags.is_turn_cmd) {
+        if (car_mode == CAR_MODE_MECH) {
+            /* 粘性锁轴翻转：车头 ↔ 车尾。目标由 Gimbal_Mech_Update 按 align_dir 写 */
+            gimbal->yaw.align_dir =
+                (gimbal->yaw.align_dir == ALIGN_BACK) ? ALIGN_FRONT : ALIGN_BACK;
+        } else {
+            /* GYRO/SPIN：世界系目标角 +180°（有滑环，方向/圈数不设限） */
+            gimbal->yaw.target_imu_angle =
+                Angle_Normalize_PI(gimbal->yaw.target_imu_angle + PI);
+        }
+        gimbal->yaw.turn_active = true;
+        gimbal->yaw.turn_finish = false;
+        gimbal->yaw.turn_time = 0U;
     }
 }
 
@@ -238,7 +340,9 @@ static void Gimbal_Key_Pitch_Update(Gimbal_t *gimbal) {
 static void Gimbal_Gyro_Update(Gimbal_t *gimbal) {
     gimbal->yaw.pid_mode = GIMBAL_PID_GYRO;  /* 切换到陀螺仪模式PID */
 
-    if (hero_car.input_src == INPUT_SRC_KEY) {
+    if (gimbal->yaw.turn_active) {
+        /* 换头进行中：不响应 ch0/鼠标，防止打断 +180° 目标追赶 */
+    } else if (hero_car.input_src == INPUT_SRC_KEY) {
         /* 键鼠：鼠标瞄准 + Ctrl 微调 */
         Gimbal_Key_Yaw_Update(gimbal);
     } else {
@@ -265,13 +369,25 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     /* 休眠模式或寻零阶段：Pitch 目标强制水平对齐 (0.0 rad) */
     if (gimbal->mode == GIMBAL_MODE_SLEEP || gimbal->mode == GIMBAL_MODE_INIT) {
         gimbal->pitch.target_mec_angle = 0.0f;
+        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         return;
     }
 
+    /* GYRO（含 SPIN，云台模式映射到 GIMBAL_MODE_GYRO）：目标在 IMU 域累加。
+       MECH：目标在编码器机械域累加。灵敏度与死区两边共用。 */
+    const bool imu_domain = (gimbal->mode == GIMBAL_MODE_GYRO);
+    float *target = imu_domain ? &gimbal->pitch.target_imu_angle
+                               : &gimbal->pitch.target_mec_angle;
+
+    /* GYRO->MECH 退出瞬间：把机械目标对齐到最后的 IMU 目标。
+       否则上层收到的是进陀螺仪之前的旧 mec 角，头会猛跳回去。 */
+    if (!imu_domain && gimbal->last_mode == GIMBAL_MODE_GYRO) {
+        gimbal->pitch.target_mec_angle = gimbal->pitch.target_imu_angle;
+    }
 
     if (hero_car.input_src == INPUT_SRC_KEY) {
-        /* 键鼠：鼠标瞄准 + Ctrl 微调 */
-        Gimbal_Key_Pitch_Update(gimbal);
+        /* 键鼠：鼠标瞄准 + Ctrl 微调（写入当前域的目标） */
+        Gimbal_Key_Pitch_Update(target);
     } else {
         /* 遥控器与编码器坐标统一：摇杆向上产生正目标，向下产生负目标。 */
         float rc_pitch_input = (float)rc_sensor.info->ch1;
@@ -283,15 +399,28 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
         }
 
         /* 积分累加，灵敏度为 RC_PITCH_MECH_SENSITIVITY */
-        gimbal->pitch.target_mec_angle += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
+        *target += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
     }
 
-
-    /* 这里只限制遥控器/键鼠累加出来的目标角，不用反馈角改写目标。 */
-    if (gimbal->pitch.target_mec_angle > gimbal->pitch.max_limit) {
-        gimbal->pitch.target_mec_angle = gimbal->pitch.max_limit;
-    } else if (gimbal->pitch.target_mec_angle < gimbal->pitch.min_limit) {
-        gimbal->pitch.target_mec_angle = gimbal->pitch.min_limit;
+    /* 这里只限制遥控器/键鼠累加出来的目标角，不用反馈角改写目标。
+       MECH：直接限编码器机械角。
+       GYRO：限制「相对当前 IMU 的俯仰偏移」落在机械软限位内，
+             真正的机构限位由上层板按编码器再钳一道。 */
+    if (imu_domain) {
+        const float delta = gimbal->pitch.target_imu_angle - gimbal->pitch.imu_angle;
+        float delta_clamped = delta;
+        if (delta_clamped > gimbal->pitch.max_limit) {
+            delta_clamped = gimbal->pitch.max_limit;
+        } else if (delta_clamped < gimbal->pitch.min_limit) {
+            delta_clamped = gimbal->pitch.min_limit;
+        }
+        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle + delta_clamped;
+    } else {
+        if (gimbal->pitch.target_mec_angle > gimbal->pitch.max_limit) {
+            gimbal->pitch.target_mec_angle = gimbal->pitch.max_limit;
+        } else if (gimbal->pitch.target_mec_angle < gimbal->pitch.min_limit) {
+            gimbal->pitch.target_mec_angle = gimbal->pitch.min_limit;
+        }
     }
 }
 
@@ -352,9 +481,16 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
     single_pid_ctrl(speed_pid);
 
     /* ====== 步骤4：下发控制电流到KT9025电机 ====== */
-    gimbal->yaw.give_current = (int16_t)speed_pid->out;  /* 速度环输出转为电流 */
-    kt_motor[0].base_info.motor_out = gimbal->yaw.give_current;      /* 记录到电机对象 */
-    KT_Yaw_SendIq(gimbal->yaw.give_current);                         /* CAN发送电流指令 */
+    // gimbal->yaw.give_current = (int16_t)speed_pid->out;  /* 速度环输出转为电流 */
+    // kt_motor[0].base_info.motor_out = gimbal->yaw.give_current;      /* 记录到电机对象 */
+    // KT_Yaw_SendIq(gimbal->yaw.give_current);   
+                          /* CAN发送电流指令 */
+
+    /* ====== 步骤4：调试——GYRO 下 yaw 输出先给 0，只调上层 pitch ====== */
+    gimbal->yaw.give_current = 0;
+    kt_motor[0].base_info.motor_out = 0;
+    KT_Yaw_SendIq(0);
+
 }
 
 
@@ -398,6 +534,8 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
     /* 模式切换平滑过渡，从非GYRO模式切入GYRO模式的瞬间，将空间目标角同步为当前IMU角*/
     if (gimbal->last_mode != GIMBAL_MODE_GYRO && gimbal->mode == GIMBAL_MODE_GYRO) {
         gimbal->yaw.target_imu_angle = gimbal->yaw.imu_angle;
+        /* Pitch 同理：IMU 域目标对齐当前 pitch，防止切模式瞬间抬头/低头猛甩 */
+        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         ClearYawPids(gimbal);
     }
 
@@ -422,8 +560,38 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
     /* 编码器速度转换：KT电机返回的速度单位为度/秒，转换为弧度/秒 */
     gimbal->yaw.feedback_mec_speed = (float)kt_motor[0].KT_motor_info.rx_info.speed * (PI / 180.0f);
 
+    /*==========================================================================
+     * 第2.4步：换头/掉头状态机（必须在对齐迟滞之前）
+     * MECH/GYRO/SPIN 都可换头；SLEEP/INIT 否决。
+     *==========================================================================*/
+    Gimbal_Turn_Update(gimbal, car_mode);
 
+    /*==========================================================================
+     * 第2.5步：双向就近对齐迟滞（88°/91°，上机调参）—— MECH 锁轴 + GYRO 底盘跟误差共用
+     * 保险：小陀螺（SPIN）与换头（turn_active）一票否决。
+     * 自旋/换头时相对夹角快速扫过，若允许更新 align_dir，
+     * 底盘解算会在正/反向之间高频震荡。
+     * 否决期间每拍刷新计数；退出后再冷却 YAW_ALIGN_POST_SPIN_TICKS。
+     * 换头结束时 Gimbal_Turn_Apply_Align_After 已按真实轴向写 align_dir
+     * 并清零 veto，这里不会再把底盘拖进 FRONT 半圈空转。
+     *==========================================================================*/
+    if ((car_mode == CAR_MODE_SPIN) || gimbal->yaw.turn_active) {
+        gimbal->yaw.align_veto_cnt = YAW_ALIGN_POST_SPIN_TICKS;  /* 在旋/换头：持续否决 */
+    } else if (gimbal->yaw.align_veto_cnt > 0U) {
+        gimbal->yaw.align_veto_cnt--;  /* 退出后的冷却倒计时 */
+    }
 
+    if ((car_mode == CAR_MODE_MECH || car_mode == CAR_MODE_GYRO) &&
+        (gimbal->yaw.align_veto_cnt == 0U)) {
+        const float abs_deg =
+            fabsf(gimbal->yaw.feedback_mec_angle) * (180.0f / PI);
+        if (abs_deg > YAW_ALIGN_BACK_MIN_DEG) {
+            gimbal->yaw.align_dir = ALIGN_BACK;   /* 离车尾更近：锁 180° */
+        } else if (abs_deg < YAW_ALIGN_FRONT_MAX_DEG) {
+            gimbal->yaw.align_dir = ALIGN_FRONT;  /* 离车头更近：锁 0° */
+        }
+        /* 88°~91° 缓冲区：保持上一拍方向，防临界横跳 */
+    }
 
     /*==========================================================================
      * 第3步：根据当前模式更新目标值
@@ -434,7 +602,7 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
             break;
 
         case GIMBAL_MODE_MECH:
-            Gimbal_Mech_Update(gimbal);   /* 机械模式目标更新 */
+            Gimbal_Mech_Update(gimbal);   /* 机械模式目标更新（按 align_dir 锁轴） */
             break;
 
         case GIMBAL_MODE_GYRO:

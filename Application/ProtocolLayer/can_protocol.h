@@ -19,9 +19,10 @@
 
 /* Exported macro ------------------------------------------------------------*/
 /* 板间通信 CAN ID（下层板与上层 C 板） */
-#define SLAVE_RX_ID                  (0x021)    /* 接收上层 C 板发来的数据 (yaw_imu, yaw_v) */
+#define SLAVE_RX_ID                  (0x021)    /* 接收上层 C 板数据 (yaw_imu, yaw_v) */
+#define SLAVE_RX_PITCH_IMU_ID        (0x022)    /* 接收上层 C 板 pitch IMU (pitch, pitch_v) */
 #define SLAVE_RX_STATE_ID            (0x023)    /* 接收上层 C 板状态帧 (摩擦轮就绪等) */
-#define SLAVE_TX_ID                  (0x022)    /* 发送给上层 C 板的数据 (整车状态, pitch目标等) */
+#define BOARD_TX_PITCH_TAR_ID        (0x0D1)    /* 发送 pitch 目标给上层 C 板 */
 
 /* CAN1 电机 ID (底盘 M3508 与 KT9025) */
 #define CHASSIS_CAN_ID_LF            (0x201)

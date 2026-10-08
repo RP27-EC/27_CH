@@ -1,5 +1,6 @@
 #include "communicate.h"
 #include "gimbal.h"
+#include "can_protocol.h"   /* BOARD_TX_PITCH_TAR_ID */
 #include "drv_can.h"
 #include <string.h>
 
@@ -14,6 +15,7 @@ void Communicate_Init(void) {
 
     /* 初始状态标记上层C板为离线 */
     board_rx_info.is_online = false;
+    board_rx_info.is_pitch_online = false;
     board_rx_info.is_state_online = false;
 }
 
@@ -33,8 +35,27 @@ void Board_Rx_C1(const uint8_t *rxBuf) {
     board_rx_info.is_online = true;
 
     /* 将IMU数据同步到云台对象，供Gimbal_Yaw_Pid_Cal()串级PID使用 */
-    hero_gimbal.yaw.imu_angle = board_rx_info.yaw_imu;  
-    hero_gimbal.yaw.imu_speed = board_rx_info.yaw_v;    
+    hero_gimbal.yaw.imu_angle = board_rx_info.yaw_imu;
+    hero_gimbal.yaw.imu_speed = board_rx_info.yaw_v;
+}
+
+
+/**
+  * @brief  0x022 接收：上层 C 板云台 Pitch IMU（角度 + 角速度）
+  * @details 供 GYRO/SPIN 模式 pitch 目标生成与（若上层闭环）域对齐使用。
+  *          与 yaw 的 0x021 同构：byte[0..3] 角度，byte[4..7] 角速度。
+  */
+void Board_Rx_Pitch(const uint8_t *rxBuf) {
+    if (rxBuf == NULL) return;
+
+    memcpy(&board_rx_info.pitch_imu, &rxBuf[0], sizeof(float));
+    memcpy(&board_rx_info.pitch_v,   &rxBuf[4], sizeof(float));
+
+    board_rx_info.pitch_offline_cnt = 0;
+    board_rx_info.is_pitch_online = true;
+
+    hero_gimbal.pitch.imu_angle = board_rx_info.pitch_imu;
+    hero_gimbal.pitch.imu_speed = board_rx_info.pitch_v;
 }
 
 
@@ -68,14 +89,15 @@ void Board_Tx_D1(void)
 {
     uint8_t tx_data[8] = {0};
 
-    /* 将 float pitch 目标角直接拷贝到前 4 字节 (tx_data[0..3]) */
-    memcpy(&tx_data[0], &board_tx_info.pitch_encoder_tar, sizeof(float)); /* 0xD1：发送编码器机械目标角(rad) */
+    /* 前 4 字节：pitch 目标角。
+       MECH = 编码器机械域；GYRO/SPIN = IMU 世界域（由 pitch_use_imu 声明）。 */
+    memcpy(&tx_data[0], &board_tx_info.pitch_encoder_tar, sizeof(float));
     tx_data[4] = board_tx_info.pitch_enable;
     tx_data[5] = board_tx_info.is_fric_on; /* 摩擦轮开启标志，供上层板摩擦轮 */
+    tx_data[6] = board_tx_info.pitch_use_imu; /* 1=上层按 IMU 域闭环 pitch */
+    /* tx_data[7] 预留给后续扩展 */
 
-    /* tx_data[6..7] 预留给后续扩展 */
-
-    CAN_SendData(&hfdcan2, 0xD1, tx_data);
+    CAN_SendData(&hfdcan2, BOARD_TX_PITCH_TAR_ID, tx_data);
 }
 
 /* 通信超时检测*/
@@ -84,6 +106,12 @@ void Communicate_Check_Timeout(void) {
         board_rx_info.offline_cnt++;  /* 未超时，递增计数器 */
     } else {
         board_rx_info.is_online = false;  /* 超时，标记上层C板离线 */
+    }
+
+    if (board_rx_info.pitch_offline_cnt < BOARD_C_OFFLINE_TIMEOUT_CNT) {
+        board_rx_info.pitch_offline_cnt++;
+    } else {
+        board_rx_info.is_pitch_online = false;
     }
 
     /* 0x023 状态帧超时：上层板未升级时始终为离线，拨弹退化为延时门禁 */

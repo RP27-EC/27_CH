@@ -9,7 +9,7 @@
 #ifndef SHOOT_MOTOR_H
 #define SHOOT_MOTOR_H
 
-#include "RM_Motor.h"  /* RoboMaster电机驱动库 */
+#include "RM_Motor.h"  
 
 /* 拨弹电机反馈ID（电调ID=5，挂在CAN2） */
 #define SHOOT_MOTOR_RX_ID         (0x205)
@@ -34,7 +34,7 @@
 #define SHOOT_STUCK_TICKS         (100U)     /* 持续100×2ms = 200ms 判卡 */
 
 /* 卡弹重试：同一发弹最多补位重试次数，超过进卡弹停机 */
-#define SHOOT_JAM_RETRY_MAX       (1U)
+#define SHOOT_JAM_RETRY_MAX       (3U)
 
 /* 补弹超时兜底：单发/补位 500×2ms = 1s 未到位 */
 #define SHOOT_FIRE_TIMEOUT_TICKS  (500U)
@@ -43,17 +43,11 @@
 #define SHOOT_RECOIL_TIMEOUT_TICKS (150U)
 #define SHOOT_RECOIL_ARRIVE_ERR   (3000.0f)  /* 反转到位判据(编码器计数) */
 
-/**
-  * @brief  拨弹电机对象
-  * @details RM3508，type=_3508_Single，控制约定与底盘轮子一致：
-  *          速度反馈=encoder_speed(rpm)，角度反馈=encoder_sum(编码器计数)
-  */
+
 extern Motor_RM_t Shoot_Motor;
 
-/* 拨弹电机初始化：绑定函数指针、上电先按在线处理 */
 void Shoot_Motor_Init(void);
 
-/* 拨弹电机卸力：清PID、力矩清零并下发一帧零电流 */
 void Shoot_Motor_Stop(void);
 
 #endif /* SHOOT_MOTOR_H */

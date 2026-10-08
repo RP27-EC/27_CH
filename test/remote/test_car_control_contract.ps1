@@ -14,18 +14,33 @@ foreach ($obsolete in @('VisionMode_e', 'VISION_OFF', 'VISION_AUTO_AIM', 'vision
 if ($control -notmatch 'Car_Mode_Switch_Update\s*\(\s*car\s*,\s*tb_up\s*,\s*tb_dn\s*,\s*s1\s*,\s*s2\s*\)') {
     throw 'Thumbwheel-up/down edges must remain connected to chassis mode switching with the lever snapshot'
 }
-if ($control -notmatch 'Car_Action_Cmd_Update\s*\(\s*car\s*,\s*tb_up\s*,\s*tb_dn\s*,\s*s1\s*,\s*s2\s*,\s*s1_stable\s*,\s*s2_stable\s*\)') {
-    throw 'Action control must receive both thumbwheel edges and both lever-stability flags'
+if ($control -notmatch 'Car_Action_Cmd_Update\s*\(\s*car\s*,\s*tb_up\s*,\s*s1\s*,\s*s2\s*,\s*s1_stable\s*,\s*s2_stable\s*\)') {
+    throw 'Action control must receive the thumbwheel-up edge and both lever-stability flags'
 }
-foreach ($flag in @('is_shoot_system_on', 'is_single_shoot_cmd', 'is_continuous_shoot', 'is_eject_cmd')) {
+foreach ($flag in @('is_shoot_system_on', 'is_single_shoot_cmd', 'is_continuous_shoot', 'is_turn_cmd')) {
     if (-not $header.Contains($flag) -or -not $control.Contains($flag)) {
         throw "Firing control flag missing: $flag"
     }
 }
 
-# 退弹绑定：S1中 + S2中 + 拨轮向下
-if ($control -notmatch 's1\s*==\s*3\s*&&\s*s2\s*==\s*3\s*&&\s*tb_dn') {
-    throw 'Eject binding must be S1-mid + S2-mid + thumbwheel-down'
+# 换头触发：遥控 S1上+S2上+拨轮上；键鼠 R（真边沿）；MECH/GYRO/SPIN 均可
+if ($control -notmatch 's1\s*==\s*RC_SW_UP\s*&&\s*s2\s*==\s*RC_SW_UP\s*&&\s*tb_up') {
+    throw 'Turn trigger must be RC: S1-up + S2-up + thumbwheel-up'
+}
+if ($control -notmatch 'Car_R_Turn_Edge\s*\(\s*\)') {
+    throw 'Keyboard turn must use a true one-frame R edge (status can hold for ~7 control ticks)'
+}
+if ($control -notmatch 'CAR_MODE_MECH\s*\|\|') {
+    throw 'Turn must be allowed in MECH (sticky head lock toggle)'
+}
+if ($control -notmatch 'CAR_MODE_GYRO\s*\|\|') {
+    throw 'Turn must be allowed in GYRO'
+}
+if ($control -notmatch 'car->mode\s*==\s*CAR_MODE_SPIN') {
+    throw 'Turn must be allowed in SPIN'
+}
+if ($control -notmatch 'is_turn_cmd\s*=\s*false') {
+    throw 'Turn pulse must be cleared every tick'
 }
 
 # 单发必须是上升沿触发（s2 从非上位拨到上位），不是冷却计数——
@@ -80,6 +95,63 @@ if ($channelBody.Groups['body'].Value -notmatch 'CAR_MODE_INIT') {
 }
 if ($channelBody.Groups['body'].Value -match 'rc_sensor\.info->Ctrl\.status') {
     throw 'Car_Chassis_Channel_Get must not gate zeroing on keyboard FSM status (torn read across a DBUS frame)'
+}
+
+# 键鼠模式切换：F/G/V 三键直达，与遥控器拨轮矩阵并列，键鼠分支不得调 RC 矩阵。
+if ($control -notmatch 'Car_Key_Mode_Switch_Update\s*\(\s*car\s*\)') {
+    throw 'Keyboard mode switch must be called from Car_Control_Update with the car object'
+}
+if ($control -notmatch 'F\.status\s*==\s*release_to_press') {
+    throw 'Keyboard F must be edge-triggered into CAR_MODE_GYRO'
+}
+if ($control -notmatch 'G\.status\s*==\s*release_to_press') {
+    throw 'Keyboard G must be edge-triggered into CAR_MODE_SPIN'
+}
+if ($control -notmatch 'V\.status\s*==\s*release_to_press') {
+    throw 'Keyboard V must be edge-triggered into CAR_MODE_MECH'
+}
+if ($control -notmatch 'car->mode\s*=\s*CAR_MODE_GYRO') {
+    throw 'Keyboard F must set CAR_MODE_GYRO'
+}
+if ($control -notmatch 'car->mode\s*=\s*CAR_MODE_SPIN') {
+    throw 'Keyboard G must set CAR_MODE_SPIN'
+}
+if ($control -notmatch 'car->mode\s*=\s*CAR_MODE_MECH') {
+    throw 'Keyboard V must set CAR_MODE_MECH'
+}
+if ($control -notmatch 'Car_Key_Mode_Switch_Update[\s\S]*CAR_MODE_SLEEP[\s\S]*CAR_MODE_INIT') {
+    throw 'Keyboard mode switch must refuse SLEEP and INIT'
+}
+# KEY 分支必须先切模式再动作；RC 分支必须继续走拨轮矩阵，且键鼠分支不得调 RC 矩阵。
+if ($control -notmatch 'Car_Key_Mode_Switch_Update\s*\(\s*car\s*\)\s*;\s*Car_Key_Action_Cmd_Update\s*\(\s*car\s*\)') {
+    throw 'Keyboard branch must call mode switch before action update'
+}
+if ($control -notmatch 'Car_Mode_Switch_Update\s*\(\s*car\s*,\s*tb_up\s*,\s*tb_dn\s*,\s*s1\s*,\s*s2\s*\)') {
+    throw 'RC path must still call Car_Mode_Switch_Update with the lever snapshot'
+}
+$keyBranch = [regex]::Match($control, 'if\s*\(\s*car->input_src\s*==\s*INPUT_SRC_KEY\s*\)\s*\{(?<body>[\s\S]*?)\n\s*\}\s*else')
+if (-not $keyBranch.Success) {
+    throw 'Car_Control_Update keyboard/RC branch not found'
+}
+if ($keyBranch.Groups['body'].Value -match 'Car_Mode_Switch_Update') {
+    throw 'Keyboard branch must not call the RC thumbwheel mode matrix'
+}
+
+# 键鼠旋转：仅机械模式映射 Q/E，且 E-Q 与摇杆同向；GYRO/SPIN 恒为 0。
+if ($channelBody.Groups['body'].Value -notmatch 'rotate_live') {
+    throw 'Keyboard rotate ramp must be gated (non-MECH / Ctrl / INIT must clear Q/E cnt)'
+}
+if ($channelBody.Groups['body'].Value -notmatch 'car->mode\s*==\s*CAR_MODE_MECH') {
+    throw 'Keyboard rotate mapping must be gated on CAR_MODE_MECH'
+}
+if ($channelBody.Groups['body'].Value -notmatch 'E\.cnt\s*-\s*rc_sensor\.info->Q\.cnt') {
+    throw 'Keyboard rotate must be E.cnt - Q.cnt (E=right, Q=left, matching RC stick direction)'
+}
+if ($channelBody.Groups['body'].Value -notmatch 'KEY_Q_CNT_MAX') {
+    throw 'Keyboard rotate must scale with KEY_Q_CNT_MAX progressive ramp'
+}
+if ($channelBody.Groups['body'].Value -notmatch '\*rotate\s*=\s*0') {
+    throw 'Non-MECH keyboard modes must keep rotate at 0'
 }
 
 Write-Host 'Car-control contract passed.'
