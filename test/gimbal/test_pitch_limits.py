@@ -92,18 +92,20 @@ class PitchLimitTest(unittest.TestCase):
     }
 ''')
 
-    def test_large_body_tilt_refreshes_bounds_in_both_directions(self):
+    def test_held_target_survives_body_tilt_until_input_reverses(self):
         for direction in (-1, 1):
             with self.subTest(direction=direction):
                 self.run_case(f'float input={direction}*660.0f;\n' + r'''
     saturate(input);float held=g.pitch.target_imu_angle;
-    g.pitch.imu_angle-=input>0 ? .04f : -.04f;
-    step(0);near(g.pitch.target_imu_angle,held+(input>0 ? -.04f : .04f));
-    /* A new static pose must not keep rewriting the target. */
-    held=g.pitch.target_imu_angle;
+    /* 车身倾斜超过锁存阈值：边界整体平移，贴界目标仍一个数位不动。 */
+    g.pitch.imu_angle+=0.04f*(input>0 ? -1 : 1);
     for(int i=0;i<100;i++){step(input);CHECK(g.pitch.target_imu_angle==held);}
-    g.pitch.imu_angle+=input>0 ? .08f : -.08f;
-    saturate(input);near(g.pitch.target_imu_angle,held+(input>0 ? .08f : -.08f));
+    /* 反向输入立即释放，目标离开旧边界。 */
+    step(-input);CHECK(g.pitch.target_imu_angle!=held);
+    /* 再回推时贴上平移后的新边界，且新边界处再次给死。 */
+    for(int i=0;i<50;i++)step(input);
+    float reheld=g.pitch.target_imu_angle;
+    for(int i=0;i<100;i++){step(input);CHECK(g.pitch.target_imu_angle==reheld);}
 ''')
 
     def test_bound_has_margin_for_untracked_small_frame_changes(self):
@@ -116,18 +118,23 @@ class PitchLimitTest(unittest.TestCase):
     CHECK(implied_mech>=g.pitch.min_limit && implied_mech<=g.pitch.max_limit);
 ''')
 
-    def test_slow_body_tilt_accumulates_but_interior_target_stays_in_world_frame(self):
+    def test_interior_target_stays_in_world_frame(self):
+        self.run_case(r'''
+    g.pitch.target_imu_angle=.2f;g.pitch.imu_angle=.2f;
+    step(0);near(g.pitch.target_imu_angle,.2f);
+    /* 行程内目标不跟随反馈平移，只在越界时截断。 */
+    g.pitch.imu_angle+=.05f;step(0);near(g.pitch.target_imu_angle,.2f);
+''')
+
+    def test_release_reclamps_frozen_target_into_reachable_range(self):
         self.run_case(r'''
     saturate(660);float held=g.pitch.target_imu_angle;
-    for(int i=1;i<=120;i++){
-        /* Each sample is tiny; cumulative tilt must still refresh the limit. */
-        float offset=.15f-i*.001f;g.pitch.imu_angle=offset;
-        step(0);
-        CHECK(g.pitch.target_imu_angle-offset<=g.pitch.max_limit+1e-6f);
-    }
-    CHECK(g.pitch.target_imu_angle<held-.10f);
-    g.pitch.target_imu_angle=.2f;
-    g.pitch.imu_angle+=.05f;step(0);near(g.pitch.target_imu_angle,.2f);
+    /* 车身倾到旧目标不可达：外打期间目标保持不动。 */
+    g.pitch.imu_angle-=.04f;
+    for(int i=0;i<10;i++){step(660);CHECK(g.pitch.target_imu_angle==held);}
+    /* 反向输入释放的当拍，目标被截回机械行程对应的世界系区间。 */
+    step(-660);
+    CHECK(g.pitch.target_imu_angle<=g.pitch.imu_limit_offset+g.pitch.max_limit-PITCH_LIMIT_MARGIN_RAD+1e-6f);
 ''')
 
     def test_feedback_loss_rebases_before_accepting_input(self):

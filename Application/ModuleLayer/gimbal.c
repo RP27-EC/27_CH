@@ -80,6 +80,9 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->pitch.target_rebase_pending = false;
     gimbal->pitch.imu_limit_offset = 0.0f;
     gimbal->pitch.imu_limit_valid = false;
+    gimbal->pitch.held_target = 0.0f;
+    gimbal->pitch.target_held = false;
+    gimbal->pitch.held_at_max = false;
 
 
   /* 机械模式参数，+不加测速头 */
@@ -372,10 +375,12 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     /* 新的工作模式必须用当前反馈重建限位参考。 */
     if (gimbal->mode != gimbal->last_mode) {
         gimbal->pitch.imu_limit_valid = false;
+        gimbal->pitch.target_held = false;
     }
     /* 休眠模式或寻零阶段：Pitch 目标强制水平对齐 (0.0 rad) */
     if (gimbal->mode == GIMBAL_MODE_SLEEP || gimbal->mode == GIMBAL_MODE_INIT) {
         gimbal->pitch.imu_limit_valid = false;
+        gimbal->pitch.target_held = false;
         gimbal->pitch.target_mec_angle = 0.0f;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         return;
@@ -391,6 +396,7 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     if (imu_domain &&
         (!board_rx_info.is_pitch_online || !board_rx_info.is_pitch_mech_online)) {
         gimbal->pitch.imu_limit_valid = false;
+        gimbal->pitch.target_held = false;
         gimbal->pitch.target_rebase_pending = true;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         return;
@@ -398,6 +404,7 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
 
     if (gimbal->pitch.target_rebase_pending && board_rx_info.is_pitch_mech_online) {
         gimbal->pitch.imu_limit_valid = false;
+        gimbal->pitch.target_held = false;
         gimbal->pitch.target_mec_angle = board_rx_info.pitch_mech_angle;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         gimbal->pitch.target_rebase_pending = false;
@@ -429,12 +436,6 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
         }
         imu_min = gimbal->pitch.imu_limit_offset + gimbal->pitch.min_limit + PITCH_LIMIT_MARGIN_RAD;
         imu_max = gimbal->pitch.imu_limit_offset + gimbal->pitch.max_limit - PITCH_LIMIT_MARGIN_RAD;
-        /* 机身姿态真正改变导致旧目标不可达时，先截断，再允许向内回退。 */
-        if (gimbal->pitch.target_imu_angle > imu_max) {
-            gimbal->pitch.target_imu_angle = imu_max;
-        } else if (gimbal->pitch.target_imu_angle < imu_min) {
-            gimbal->pitch.target_imu_angle = imu_min;
-        }
     }
 
     if (hero_car.input_src == INPUT_SRC_KEY) {
@@ -454,13 +455,33 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
         *target += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
     }
 
-    /* MECH 使用固定机械角限位；GYRO 使用锁存的 IMU 边界。
-       向外增量当拍丢弃，不积压；反向输入立即离开边界。 */
+    /* GYRO 边界保持：目标贴界后锁存的是数值本身，不是边界公式。
+       持续外打的增量当拍丢弃，边界再怎么抖都不改写目标（锯齿的根源）；
+       反向输入立即释放，回中保持不动。机身大幅倾斜后的可达性
+       由上板最终限幅兜底，此处只保证操作手语义：打满即给死。 */
     if (imu_domain) {
-        if (gimbal->pitch.target_imu_angle > imu_max) {
-            gimbal->pitch.target_imu_angle = imu_max;
-        } else if (gimbal->pitch.target_imu_angle < imu_min) {
-            gimbal->pitch.target_imu_angle = imu_min;
+        if (gimbal->pitch.target_held) {
+            const float delta = *target - gimbal->pitch.held_target;
+            const bool outward = gimbal->pitch.held_at_max ? (delta > 0.0f) : (delta < 0.0f);
+            if (outward) {
+                *target = gimbal->pitch.held_target;  /* 外打增量丢弃 */
+            } else if (delta != 0.0f) {
+                gimbal->pitch.target_held = false;    /* 反向输入：当拍释放 */
+            }
+            /* 回中（delta==0）：目标一个数位都不动 */
+        }
+        if (!gimbal->pitch.target_held) {
+            if (*target > imu_max) {
+                *target = imu_max;
+                gimbal->pitch.held_target = imu_max;
+                gimbal->pitch.held_at_max = true;
+                gimbal->pitch.target_held = true;
+            } else if (*target < imu_min) {
+                *target = imu_min;
+                gimbal->pitch.held_target = imu_min;
+                gimbal->pitch.held_at_max = false;
+                gimbal->pitch.target_held = true;
+            }
         }
     } else {
         if (gimbal->pitch.target_mec_angle > gimbal->pitch.max_limit) {

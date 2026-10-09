@@ -148,6 +148,9 @@ typedef struct {
     bool target_rebase_pending; /* 反馈恢复后按当前角度重建目标 */
     float imu_limit_offset;     /* 锁存的 IMU 角 - 机械角，限位坐标变换参考 (rad) */
     bool imu_limit_valid;       /* 切模式或反馈失效后重新锁存 */
+    float held_target;          /* 贴界锁存的目标值：外打期间绝对不变 (rad) */
+    bool target_held;           /* GYRO 域目标处于边界保持状态 */
+    bool held_at_max;           /* true=锁在上限 / false=锁在下限 */
     float min_limit;            /* 机械下限位（与上层 mec_min_rad 一致） */
     float max_limit;            /* 机械上限位 */
 } Gimbal_Pitch_Target_t;
