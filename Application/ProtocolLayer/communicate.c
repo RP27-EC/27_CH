@@ -19,6 +19,7 @@ void Communicate_Init(void) {
     board_rx_info.is_pitch_online = false;
     board_rx_info.is_pitch_mech_online = false;
     board_rx_info.is_state_online = false;
+    board_rx_info.pitch_mech_invalid_reason = 3U;
 }
 
 
@@ -79,16 +80,27 @@ void Board_Rx_State(const uint8_t *rxBuf)
     board_rx_info.is_fric_work  = (rxBuf[0] & FRIC_STATE_WORK)  != 0U;
 
     /* 旧版上层未携带机械角时，禁止把填充零误认为真实反馈。 */
-    board_rx_info.is_pitch_mech_online = false;
+    bool pitch_mech_valid = false;
+    uint8_t invalid_reason = 1U;
+    board_rx_info.state_last_marker = rxBuf[5];
+    board_rx_info.state_rx_count++;
     if (rxBuf[5] == PITCH_MECH_VALID_MARKER) {
+        invalid_reason = 2U;
         float pitch_mech_angle;
         memcpy(&pitch_mech_angle, &rxBuf[1], sizeof(float));
         if (isfinite(pitch_mech_angle) &&
             pitch_mech_angle >= -3.14159265358979323846f &&
             pitch_mech_angle <= 3.14159265358979323846f) {
             board_rx_info.pitch_mech_angle = pitch_mech_angle;
-            board_rx_info.is_pitch_mech_online = true;
+            pitch_mech_valid = true;
+            invalid_reason = 0U;
         }
+    }
+    /* 完成整帧校验后再发布，正常帧不先制造一次 false。 */
+    board_rx_info.pitch_mech_invalid_reason = invalid_reason;
+    board_rx_info.is_pitch_mech_online = pitch_mech_valid;
+    if (!pitch_mech_valid) {
+        board_rx_info.state_invalid_count++;
     }
 
     /* 重置离线计数器，标记状态帧在线 */
@@ -133,7 +145,11 @@ void Communicate_Check_Timeout(void) {
     if (board_rx_info.state_offline_cnt < BOARD_C_OFFLINE_TIMEOUT_CNT) {
         board_rx_info.state_offline_cnt++;
     } else {
+        if (board_rx_info.is_state_online) {
+            board_rx_info.state_timeout_count++;
+        }
         board_rx_info.is_state_online = false;
         board_rx_info.is_pitch_mech_online = false;
+        board_rx_info.pitch_mech_invalid_reason = 3U;
     }
 }

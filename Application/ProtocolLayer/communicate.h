@@ -29,6 +29,12 @@ typedef struct {
     float    pitch_mech_angle;  /* 0x023 byte[1..4]：上层编码器机械角 (rad) */
     bool     is_pitch_mech_online; /* 收到有效机械角，且 0x023 未超时 */
     uint16_t state_offline_cnt; /* 0x023 掉线计时器 */
+    /* Watch 诊断，不改变 CAN 帧布局。reason: 0=有效,1=标记错误,2=角度错误,3=超时/未收到 */
+    uint8_t pitch_mech_invalid_reason;
+    uint8_t state_last_marker;
+    uint32_t state_rx_count;
+    uint32_t state_invalid_count;
+    uint32_t state_timeout_count; /* 仅在线转超时时累加，避免每周期重复计数 */
 } Board_Rx_Info_t;
 
 typedef struct {
