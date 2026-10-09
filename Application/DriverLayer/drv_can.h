@@ -47,5 +47,7 @@ void HAL_CAN_TxHeadeInit(uint16_t ID);
 void CAN1_SendData(uint32_t StdId, uint8_t *data);
 void CAN2_SendData(uint32_t StdId, uint8_t *data);
 HAL_StatusTypeDef CAN_SendData(CAN_HandleTypeDef *hcan, uint32_t stdId, uint8_t *dat);
+HAL_StatusTypeDef CAN_SendData_Wait(CAN_HandleTypeDef *hcan, uint32_t stdId,
+                                   uint8_t *dat, uint32_t timeout_ms);
 
 #endif

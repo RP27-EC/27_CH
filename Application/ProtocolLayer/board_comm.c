@@ -50,7 +50,8 @@ HAL_StatusTypeDef Board_Comm_Send_State(float pitch_mech_rad, bool pitch_valid)
         memcpy(&tx_buf[1], &pitch_mech_rad, sizeof(float));
         tx_buf[5] = PITCH_MECH_VALID_MARKER;
     }
-    HAL_StatusTypeDef result = CAN_SendData(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf);
+    /* The preceding IMU and motor frames can occupy all three bxCAN mailboxes. */
+    HAL_StatusTypeDef result = CAN_SendData_Wait(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf, 2U);
     if (result != HAL_OK) {
         board_tx_info.state_tx_fail_count++;
     }

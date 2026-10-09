@@ -265,6 +265,30 @@ HAL_StatusTypeDef CAN_SendData(CAN_HandleTypeDef *hcan, uint32_t stdId, uint8_t 
 	return HAL_OK;  /* 发送成功 */
 }
 
+/* Task-only bounded wait; interrupt callers retain nonblocking behavior. */
+HAL_StatusTypeDef CAN_SendData_Wait(CAN_HandleTypeDef *hcan, uint32_t stdId,
+                                   uint8_t *dat, uint32_t timeout_ms)
+{
+    if (hcan == NULL || dat == NULL ||
+        (hcan->Instance != CAN1 && hcan->Instance != CAN2)) {
+        return HAL_ERROR;
+    }
+
+    if (timeout_ms == 0U || __get_IPSR() != 0U ||
+        __get_PRIMASK() != 0U || __get_BASEPRI() != 0U) {
+        return CAN_SendData(hcan, stdId, dat);
+    }
+
+    uint32_t start_tick = HAL_GetTick();
+    while (HAL_CAN_GetTxMailboxesFreeLevel(hcan) == 0U) {
+        if ((uint32_t)(HAL_GetTick() - start_tick) >= timeout_ms) {
+            return HAL_TIMEOUT;
+        }
+    }
+
+    return CAN_SendData(hcan, stdId, dat);
+}
+
 /* rxData Handler [Weak] functions -------------------------------------------*/
 
 /**

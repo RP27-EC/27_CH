@@ -108,6 +108,7 @@ typedef int HAL_StatusTypeDef;
 int hcan2,send_result;
 uint8_t sent[8];
 int CAN_SendData(int*h,int id,uint8_t*buf){memcpy(sent,buf,8);return send_result;}
+int CAN_SendData_Wait(int*h,int id,uint8_t*buf,uint32_t timeout){return CAN_SendData(h,id,buf);}
 struct info {struct {float yaw,rate_yaw,pitch,rate_pitch;} base_info;} info;
 struct sensor {struct {int err_code,cali_end;} work_state;struct info *info;void (*update)(struct sensor*);} imu_sensor;
 struct {struct {float feedback_pitch,give_torque;} pitch;} gimbal;
