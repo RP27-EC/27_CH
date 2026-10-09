@@ -31,6 +31,11 @@
 #define PITCH_MIN_MEC_ANGLE         (PITCH_MIN_DEG * DEG_TO_RAD)
 #define PITCH_MAX_MEC_ANGLE         (PITCH_MAX_RAD)
 
+/* IMU/机械坐标差的锁存更新阈值，抑制限位处噪声及两帧采样时差。
+ * 两端内缩同等余量，覆盖锁存期间未更新的坐标差；不代替硬限位保护。 */
+#define PITCH_LIMIT_FRAME_HYST_RAD  (0.5f * DEG_TO_RAD)
+#define PITCH_LIMIT_MARGIN_RAD      (PITCH_LIMIT_FRAME_HYST_RAD)
+
 /* 摇杆控制灵敏度 (2ms 周期下的积分步长) */
 #define RC_YAW_MECH_SENSITIVITY     (0.0001f)    /* 机械模式 Yaw 灵敏度 */
 #define RC_YAW_GYRO_DEADZONE        (40.0f)      /* GYRO 模式摇杆死区，过滤中位偏差，此处的数值是摇杆通道值 */
@@ -134,13 +139,15 @@ typedef struct {
 /* Pitch 轴目标管理
    MECH：目标在编码器机械域（下层只生成目标，上层 C 板闭环）
    GYRO/SPIN：目标在 IMU 世界域累加，随 0xD1 的 pitch_use_imu=1 发给上层，
-              上层用自带 IMU 双环 + 重力补偿闭环（有滑环云台同理，pitch 不限圈数） */
+              上层用自带 IMU 双环 + 重力补偿闭环，目标受机械行程约束 */
 typedef struct {
     float target_mec_angle;     /* MECH：编码器机械目标角 (rad) */
     float target_imu_angle;     /* GYRO/SPIN：IMU 域 pitch 目标角 (rad) */
     float imu_angle;            /* 上层 C 板 0x022 回传 pitch 角 (rad) */
     float imu_speed;            /* 上层 C 板 0x022 回传 pitch 角速度 (rad/s) */
     bool target_rebase_pending; /* 反馈恢复后按当前角度重建目标 */
+    float imu_limit_offset;     /* 锁存的 IMU 角 - 机械角，限位坐标变换参考 (rad) */
+    bool imu_limit_valid;       /* 切模式或反馈失效后重新锁存 */
     float min_limit;            /* 机械下限位（与上层 mec_min_rad 一致） */
     float max_limit;            /* 机械上限位 */
 } Gimbal_Pitch_Target_t;

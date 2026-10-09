@@ -78,6 +78,8 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->pitch.imu_angle = 0.0f;
     gimbal->pitch.imu_speed = 0.0f;
     gimbal->pitch.target_rebase_pending = false;
+    gimbal->pitch.imu_limit_offset = 0.0f;
+    gimbal->pitch.imu_limit_valid = false;
 
 
   /* 机械模式参数，+不加测速头 */
@@ -367,8 +369,13 @@ static void Gimbal_Gyro_Update(Gimbal_t *gimbal) {
 
 static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
 {
+    /* 新的工作模式必须用当前反馈重建限位参考。 */
+    if (gimbal->mode != gimbal->last_mode) {
+        gimbal->pitch.imu_limit_valid = false;
+    }
     /* 休眠模式或寻零阶段：Pitch 目标强制水平对齐 (0.0 rad) */
     if (gimbal->mode == GIMBAL_MODE_SLEEP || gimbal->mode == GIMBAL_MODE_INIT) {
+        gimbal->pitch.imu_limit_valid = false;
         gimbal->pitch.target_mec_angle = 0.0f;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         return;
@@ -377,17 +384,20 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     /* GYRO（含 SPIN，云台模式映射到 GIMBAL_MODE_GYRO）：目标在 IMU 域累加。
        MECH：目标在编码器机械域累加。灵敏度与死区两边共用。 */
     const bool imu_domain = (gimbal->mode == GIMBAL_MODE_GYRO);
+    if (!imu_domain) gimbal->pitch.imu_limit_valid = false;
     float *target = imu_domain ? &gimbal->pitch.target_imu_angle
                                : &gimbal->pitch.target_mec_angle;
 
     if (imu_domain &&
         (!board_rx_info.is_pitch_online || !board_rx_info.is_pitch_mech_online)) {
+        gimbal->pitch.imu_limit_valid = false;
         gimbal->pitch.target_rebase_pending = true;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         return;
     }
 
     if (gimbal->pitch.target_rebase_pending && board_rx_info.is_pitch_mech_online) {
+        gimbal->pitch.imu_limit_valid = false;
         gimbal->pitch.target_mec_angle = board_rx_info.pitch_mech_angle;
         gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
         gimbal->pitch.target_rebase_pending = false;
@@ -408,11 +418,18 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     float imu_min = 0.0f;
     float imu_max = 0.0f;
     if (imu_domain) {
-        imu_min = gimbal->pitch.imu_angle +
-            (gimbal->pitch.min_limit - board_rx_info.pitch_mech_angle);
-        imu_max = gimbal->pitch.imu_angle +
-            (gimbal->pitch.max_limit - board_rx_info.pitch_mech_angle);
-        /* 边界随机身姿态移动时，先丢弃旧目标的超限量。 */
+        const float frame_offset = gimbal->pitch.imu_angle - board_rx_info.pitch_mech_angle;
+        /* 不用每拍的反馈噪声重写边界。持续打满时使用同一个锁存边界；
+         * 坐标差相对上次锁存值累计变化超过阈值，才跟随机身姿态刷新。
+         * 这里只改变限位参考，不把中间行程内的世界系目标跟着平移。 */
+        if (!gimbal->pitch.imu_limit_valid ||
+            fabsf(frame_offset - gimbal->pitch.imu_limit_offset) > PITCH_LIMIT_FRAME_HYST_RAD) {
+            gimbal->pitch.imu_limit_offset = frame_offset;
+            gimbal->pitch.imu_limit_valid = true;
+        }
+        imu_min = gimbal->pitch.imu_limit_offset + gimbal->pitch.min_limit + PITCH_LIMIT_MARGIN_RAD;
+        imu_max = gimbal->pitch.imu_limit_offset + gimbal->pitch.max_limit - PITCH_LIMIT_MARGIN_RAD;
+        /* 机身姿态真正改变导致旧目标不可达时，先截断，再允许向内回退。 */
         if (gimbal->pitch.target_imu_angle > imu_max) {
             gimbal->pitch.target_imu_angle = imu_max;
         } else if (gimbal->pitch.target_imu_angle < imu_min) {
@@ -437,8 +454,8 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
         *target += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
     }
 
-    /* MECH 使用固定机械角限位；GYRO 按当前编码器剩余行程
-       换算 IMU 目标边界，在累加处截断向外增量。 */
+    /* MECH 使用固定机械角限位；GYRO 使用锁存的 IMU 边界。
+       向外增量当拍丢弃，不积压；反向输入立即离开边界。 */
     if (imu_domain) {
         if (gimbal->pitch.target_imu_angle > imu_max) {
             gimbal->pitch.target_imu_angle = imu_max;
