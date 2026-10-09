@@ -80,6 +80,9 @@ void StartCtrlTask(void *argument)
         board_tx_info.pitch_enable =
             (hero_gimbal.mode != GIMBAL_MODE_SLEEP &&
              hero_gimbal.mode != GIMBAL_MODE_INIT &&
+             !hero_gimbal.pitch.target_rebase_pending &&
+             (!pitch_imu_domain ||
+              (board_rx_info.is_pitch_online && board_rx_info.is_pitch_mech_online)) &&
              rc_sensor.work_state == DEV_ONLINE &&
              rc_sensor.errno == NONE_ERR) ? 1U : 0U;
         Board_Tx_D1();

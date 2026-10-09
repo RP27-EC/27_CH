@@ -27,9 +27,9 @@
 
 /* Pitch 轴软限位 (rad) */
 #define PITCH_MIN_DEG               (-18.0f)//从-15降低
-#define PITCH_MAX_DEG               (35.0f)  //从30往上升高
+#define PITCH_MAX_RAD               (0.55f)
 #define PITCH_MIN_MEC_ANGLE         (PITCH_MIN_DEG * DEG_TO_RAD)
-#define PITCH_MAX_MEC_ANGLE         (PITCH_MAX_DEG * DEG_TO_RAD) /* 机械目标硬软件上限，避免超过 +0.35rad */
+#define PITCH_MAX_MEC_ANGLE         (PITCH_MAX_RAD)
 
 /* 摇杆控制灵敏度 (2ms 周期下的积分步长) */
 #define RC_YAW_MECH_SENSITIVITY     (0.0001f)    /* 机械模式 Yaw 灵敏度 */
@@ -140,6 +140,7 @@ typedef struct {
     float target_imu_angle;     /* GYRO/SPIN：IMU 域 pitch 目标角 (rad) */
     float imu_angle;            /* 上层 C 板 0x022 回传 pitch 角 (rad) */
     float imu_speed;            /* 上层 C 板 0x022 回传 pitch 角速度 (rad/s) */
+    bool target_rebase_pending; /* 反馈恢复后按当前角度重建目标 */
     float min_limit;            /* 机械下限位（与上层 mec_min_rad 一致） */
     float max_limit;            /* 机械上限位 */
 } Gimbal_Pitch_Target_t;

@@ -1,41 +1,13 @@
-# 编译生成的中间文件
+# Keil 界面布局（每次开关工程都会变）
+*.uvguix.*
+# Python 缓存
+__pycache__/
+*.pyc
+# 编译产物
 *.o
-*.d
 *.crf
-*.tra
-*.axf
-*.hex
-*.bin
-*.map
+*.d
 *.lst
-*.lnp
-*.__i
-
-# Keil 工程临时文件
-*.uvgui.*
-*.uvopt
-*.uvproj.bak
-*.dep
-*.plg
-*.log
-*.bak
-*.htm
 *.iex
-
-# 调试器相关文件
-JLinkLog.txt
-JLinkSettings.ini
-*.ini
-*.cdb
-
-# 目录忽略（编译生成的中间文件夹）
-Objects/
-Listings/
-RTE/
-_build/
-Debug/
-Release/
-
-# 编辑器/IDE 临时文件
-*.swp
-*~
+*.dep
+*.lnp

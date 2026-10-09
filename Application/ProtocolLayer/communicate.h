@@ -6,9 +6,10 @@
 
 #define BOARD_C_OFFLINE_TIMEOUT_CNT (50)  /* 50 * 2ms = 100ms 判定离线 */
 
-/* 0x023 状态帧 flags 位定义（byte[0]），CAN ID 见 can_protocol.h */
+/* 0x023：byte[0] 状态，byte[1..4] 机械角，byte[5] 有效标记 */
 #define FRIC_STATE_SPEED             (1U << 0)  /* 摩擦轮已达速 */
 #define FRIC_STATE_WORK              (1U << 1)  /* 摩擦轮电机全部在线 */
+#define PITCH_MECH_VALID_MARKER      (0xA5U)    /* 0x023 byte[5]：机械角有效 */
 
 typedef struct {
     float yaw_imu;          /* 空间绝对 Yaw 角度 (rad) —— 0x021 */
@@ -25,6 +26,8 @@ typedef struct {
     bool     is_fric_speed;     /* 六摩擦轮实测均已达速 */
     bool     is_fric_work;      /* 六摩擦轮电机全部在线 */
     bool     is_state_online;   /* 0x023 在线（上层板是否回传状态帧） */
+    float    pitch_mech_angle;  /* 0x023 byte[1..4]：上层编码器机械角 (rad) */
+    bool     is_pitch_mech_online; /* 收到有效机械角，且 0x023 未超时 */
     uint16_t state_offline_cnt; /* 0x023 掉线计时器 */
 } Board_Rx_Info_t;
 

@@ -3,6 +3,7 @@
 #include "can_protocol.h"   /* BOARD_TX_PITCH_TAR_ID */
 #include "drv_can.h"
 #include <string.h>
+#include <math.h>
 
 
 Board_Rx_Info_t board_rx_info;
@@ -16,6 +17,7 @@ void Communicate_Init(void) {
     /* 初始状态标记上层C板为离线 */
     board_rx_info.is_online = false;
     board_rx_info.is_pitch_online = false;
+    board_rx_info.is_pitch_mech_online = false;
     board_rx_info.is_state_online = false;
 }
 
@@ -76,6 +78,19 @@ void Board_Rx_State(const uint8_t *rxBuf)
     board_rx_info.is_fric_speed = (rxBuf[0] & FRIC_STATE_SPEED) != 0U;
     board_rx_info.is_fric_work  = (rxBuf[0] & FRIC_STATE_WORK)  != 0U;
 
+    /* 旧版上层未携带机械角时，禁止把填充零误认为真实反馈。 */
+    board_rx_info.is_pitch_mech_online = false;
+    if (rxBuf[5] == PITCH_MECH_VALID_MARKER) {
+        float pitch_mech_angle;
+        memcpy(&pitch_mech_angle, &rxBuf[1], sizeof(float));
+        if (isfinite(pitch_mech_angle) &&
+            pitch_mech_angle >= -3.14159265358979323846f &&
+            pitch_mech_angle <= 3.14159265358979323846f) {
+            board_rx_info.pitch_mech_angle = pitch_mech_angle;
+            board_rx_info.is_pitch_mech_online = true;
+        }
+    }
+
     /* 重置离线计数器，标记状态帧在线 */
     board_rx_info.state_offline_cnt = 0;
     board_rx_info.is_state_online = true;
@@ -119,5 +134,6 @@ void Communicate_Check_Timeout(void) {
         board_rx_info.state_offline_cnt++;
     } else {
         board_rx_info.is_state_online = false;
+        board_rx_info.is_pitch_mech_online = false;
     }
 }

@@ -77,6 +77,7 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->pitch.target_imu_angle = 0.0f;   /* GYRO 域 pitch 目标，切入陀螺仪时与 IMU 对齐 */
     gimbal->pitch.imu_angle = 0.0f;
     gimbal->pitch.imu_speed = 0.0f;
+    gimbal->pitch.target_rebase_pending = false;
 
 
   /* 机械模式参数，+不加测速头 */
@@ -379,10 +380,44 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
     float *target = imu_domain ? &gimbal->pitch.target_imu_angle
                                : &gimbal->pitch.target_mec_angle;
 
-    /* GYRO->MECH 退出瞬间：把机械目标对齐到最后的 IMU 目标。
-       否则上层收到的是进陀螺仪之前的旧 mec 角，头会猛跳回去。 */
+    if (imu_domain &&
+        (!board_rx_info.is_pitch_online || !board_rx_info.is_pitch_mech_online)) {
+        gimbal->pitch.target_rebase_pending = true;
+        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
+        return;
+    }
+
+    if (gimbal->pitch.target_rebase_pending && board_rx_info.is_pitch_mech_online) {
+        gimbal->pitch.target_mec_angle = board_rx_info.pitch_mech_angle;
+        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle;
+        gimbal->pitch.target_rebase_pending = false;
+    }
+
+    /* GYRO->MECH 时必须使用当前机械角，不能把 IMU 世界角当机械角。 */
     if (!imu_domain && gimbal->last_mode == GIMBAL_MODE_GYRO) {
-        gimbal->pitch.target_mec_angle = gimbal->pitch.target_imu_angle;
+        if (board_rx_info.is_pitch_mech_online) {
+            gimbal->pitch.target_mec_angle = board_rx_info.pitch_mech_angle;
+        } else {
+            gimbal->pitch.target_rebase_pending = true;
+            return;
+        }
+    }
+
+    if (gimbal->pitch.target_rebase_pending) return;
+
+    float imu_min = 0.0f;
+    float imu_max = 0.0f;
+    if (imu_domain) {
+        imu_min = gimbal->pitch.imu_angle +
+            (gimbal->pitch.min_limit - board_rx_info.pitch_mech_angle);
+        imu_max = gimbal->pitch.imu_angle +
+            (gimbal->pitch.max_limit - board_rx_info.pitch_mech_angle);
+        /* 边界随机身姿态移动时，先丢弃旧目标的超限量。 */
+        if (gimbal->pitch.target_imu_angle > imu_max) {
+            gimbal->pitch.target_imu_angle = imu_max;
+        } else if (gimbal->pitch.target_imu_angle < imu_min) {
+            gimbal->pitch.target_imu_angle = imu_min;
+        }
     }
 
     if (hero_car.input_src == INPUT_SRC_KEY) {
@@ -402,19 +437,14 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
         *target += rc_pitch_input * RC_PITCH_MECH_SENSITIVITY;
     }
 
-    /* 这里只限制遥控器/键鼠累加出来的目标角，不用反馈角改写目标。
-       MECH：直接限编码器机械角。
-       GYRO：限制「相对当前 IMU 的俯仰偏移」落在机械软限位内，
-             真正的机构限位由上层板按编码器再钳一道。 */
+    /* MECH 使用固定机械角限位；GYRO 按当前编码器剩余行程
+       换算 IMU 目标边界，在累加处截断向外增量。 */
     if (imu_domain) {
-        const float delta = gimbal->pitch.target_imu_angle - gimbal->pitch.imu_angle;
-        float delta_clamped = delta;
-        if (delta_clamped > gimbal->pitch.max_limit) {
-            delta_clamped = gimbal->pitch.max_limit;
-        } else if (delta_clamped < gimbal->pitch.min_limit) {
-            delta_clamped = gimbal->pitch.min_limit;
+        if (gimbal->pitch.target_imu_angle > imu_max) {
+            gimbal->pitch.target_imu_angle = imu_max;
+        } else if (gimbal->pitch.target_imu_angle < imu_min) {
+            gimbal->pitch.target_imu_angle = imu_min;
         }
-        gimbal->pitch.target_imu_angle = gimbal->pitch.imu_angle + delta_clamped;
     } else {
         if (gimbal->pitch.target_mec_angle > gimbal->pitch.max_limit) {
             gimbal->pitch.target_mec_angle = gimbal->pitch.max_limit;
