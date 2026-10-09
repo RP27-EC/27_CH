@@ -318,8 +318,8 @@ void imu_update(imu_sensor_t *imu_sen)
     {
         /**
          * 静态校准模式：累加 2000 次取平均
-         * 使用递推平均算法：offset = offset - gyro * 0.0005
-         * 即每次用当前值修正 0.05% 的偏差
+         * offset = -sum(gyro) / 2000，保存静态均值的负数。
+         * 控制任务标称周期为 2ms，采集约需 4 秒以上，期间须保持静止。
          */
         if (imu_cnt < 2000)
         {
@@ -332,7 +332,6 @@ void imu_update(imu_sensor_t *imu_sen)
         {
             /* 校准完成（2000 次） */
             imu_cnt = 0;
-            imu_sen->work_state.err_code = IMU_NONE_ERR;  /* 切换为正常状态 */
 
             /**
              * 零偏有效性检查：如果零偏过大（>0.005），认为校准失败，清零
@@ -345,30 +344,23 @@ void imu_update(imu_sensor_t *imu_sen)
             if (abs(imu_info->offset_info.gz_offset) > 0.005f)
                 imu_info->offset_info.gz_offset = 0;
 
+#if IMU_USE_EKF == 1
+            /* 使用最终通过检查的 offset，同步转换为补偿后的残余零偏。
+             * 此前 EKF 已运行：不可仅修改输入而保留原来的总零偏状态。 */
+            IMU_QuaternionEKF_ShiftGyroBias(imu_info->offset_info.gx_offset,
+                                           imu_info->offset_info.gy_offset);
+#endif
+            imu_sen->work_state.err_code = IMU_NONE_ERR;
             imu_sen->work_state.cali_end = 1;  /* 标记校准结束 */
         }
     }
-    else
+    /* 独立于上面的校准分支：完成当帧即应用，和 EKF 状态平移同帧生效。 */
+    if (imu_sen->work_state.err_code == IMU_NONE_ERR)
     {
-        /* 正常运行模式：应用零偏校准 */
-#if IMU_USE_EKF == 1
-        /**
-         * EKF 模式：只对 Z 轴角速度做零偏修正
-         * 因为 EKF 已经在内部估计了 X、Y 轴的零偏
-         * Z 轴（yaw）的零偏无法通过加速度计观测，需要手动修正
-         */
-        gyroz += imu_info->offset_info.gz_offset;
-#endif
-
-#if IMU_USE_MAHONY == 1
-        /**
-         * Mahony 模式：对三轴角速度都做零偏修正
-         * Mahony 算法不估计零偏，需要全部手动修正
-         */
+        /* 两种算法都先扣除三轴静态零偏；EKF 再估计 X/Y 残余零偏。 */
         gyrox += imu_info->offset_info.gx_offset;
         gyroy += imu_info->offset_info.gy_offset;
         gyroz += imu_info->offset_info.gz_offset;
-#endif
     }
 
     /* ========== 步骤4：原始数据低通滤波 ========== */

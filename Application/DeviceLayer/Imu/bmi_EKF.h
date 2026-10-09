@@ -81,6 +81,9 @@ extern float chiSquare;
 extern float ChiSquareTestThreshold;
 void IMU_QuaternionEKF_Init(float* init_quaternion,float process_noise1, float process_noise2, float measure_noise, float lambda);
 void IMU_QuaternionEKF_Update(float gx, float gy, float gz, float ax, float ay, float az, float dt);
+/* 输入角速度增加 offset 时，同步平移 X/Y 零偏状态（rad/s）。
+ * 必须在解算任务中、输入补偿生效的同一帧调用一次。 */
+void IMU_QuaternionEKF_ShiftGyroBias(float offset_x, float offset_y);
 void transform_init(gimbal_transform_t *gim_trans);
 void Vector_Transform(float gx, float gy, float gz,\
 	                  float ax, float ay, float az,\

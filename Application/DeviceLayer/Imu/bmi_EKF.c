@@ -183,6 +183,23 @@ void IMU_QuaternionEKF_Init(float* init_quaternion, float process_noise1,
     memcpy(QEKF_INS.IMU_QuaternionEKF.P_data, IMU_QuaternionEKF_P, sizeof(IMU_QuaternionEKF_P));
 }
 
+/* Rebase X/Y bias in the same task and frame as input compensation. */
+void IMU_QuaternionEKF_ShiftGyroBias(float offset_x, float offset_y)
+{
+    KalmanFilter_t *kf = &QEKF_INS.IMU_QuaternionEKF;
+    const float offset[2] = {offset_x, offset_y};
+
+    /* 平移为确定常数，Jacobian 为单位阵，因此不改变 P 或姿态。 */
+    for (uint8_t axis = 0; axis < 2; ++axis)
+    {
+        uint8_t state = axis + 4;
+        kf->xhat_data[state] += offset[axis];
+        kf->xhatminus_data[state] += offset[axis];
+        kf->FilteredValue[state] = kf->xhat_data[state];
+        QEKF_INS.GyroBias[axis] = kf->xhat_data[state];
+    }
+}
+
 /**
  * @brief  基于扩展卡尔曼滤波的四元数更新（核心函数）
  * @param[in] gx, gy, gz  陀螺仪角速度数据（rad/s）
