@@ -32,9 +32,6 @@ typedef struct {
     float imu_gravity_zero_deg;    /* IMU 模式衰减起点 (deg) */
     float imu_gravity_edge_deg;    /* IMU 模式衰减宽度 (deg) */
 
-    /* IMU 模式目标角软限位（rad，IMU 世界系） */
-    float imu_min_rad;   /* IMU 模式目标角下限 (rad) */
-    float imu_max_rad;   /* IMU 模式目标角上限 (rad) */
     float max_torque_limit;   /* 最终输出力矩限幅 (N·m) */
     float max_speed_limit;    /* 外环目标角速度限幅 (rad/s) */
 

@@ -29,13 +29,19 @@ void StartControlTask(void const * argument)
         Board_Comm_Check_Timeout();
 
 
-         //仅在IMU状态为无错误或已校准时才读取数据
-        bool imu_valid = ((imu_sensor.work_state.err_code == IMU_NONE_ERR) ||
+        /* 校准期间必须继续采样，但不能允许 Pitch 电机工作。 */
+        bool imu_can_update = ((imu_sensor.work_state.err_code == IMU_NONE_ERR) ||
                           (imu_sensor.work_state.err_code == IMU_DATA_CALI));
-        if (imu_valid)
+        if (imu_can_update)
         {
             imu_sensor.update(&imu_sensor);  /* 更新IMU原始数据 */
+        }
 
+        /* 使用本次更新后的状态，校准完成且无错误才发布有效姿态。 */
+        bool imu_valid = (imu_sensor.work_state.err_code == IMU_NONE_ERR) &&
+                         (imu_sensor.work_state.cali_end != 0U);
+        if (imu_valid)
+        {
             /* 通过CAN总线发送姿态数据给下层板，供下层板进行云台控制 */
             /* 坐标约定：逆时针为正。当前 IMU 的 yaw 角已按该约定输出，
              * 但 rate_yaw 的原始正方向相反，因此发送前取反，使角度和角速度一致。 */

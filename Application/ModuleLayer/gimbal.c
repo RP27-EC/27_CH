@@ -90,9 +90,6 @@ void Gimbal_Init(void)
     gimbal.pitch.imu_gravity_zero_deg = 28.6f;   /* 衰减起点 = 0.5 rad ≈ +28.6° */
     gimbal.pitch.imu_gravity_edge_deg = 8.0f;    /* 衰减宽度 = 0.64-0.5 rad ≈ 8.0°，到 +36.7° 归零 */
 
-    /* IMU 模式目标角软限位（IMU 世界系） */
-    gimbal.pitch.imu_min_rad = 0.0f;     /* 最小限位 0 rad */
-    gimbal.pitch.imu_max_rad = 0.68f;   /* 最大限位 0.68 rad */
     gimbal.pitch.max_torque_limit = 5.5f;//力矩限制从5.5下降
     gimbal.pitch.max_speed_limit = 6.0f;//最大角速度从6.0下降到3.0rad/s，现在已改回6.0f
   
@@ -161,15 +158,9 @@ static void Gimbal_Mech_Target_Update(void)
 
     /* 下位机与编码器反馈统一为“向上为正”，不再反向解释目标角。*/
     gimbal.pitch.target_pitch = board_rx_info.pitch_encoder_tar;
-    /* 目标角软限位：IMU 模式直接按 IMU 世界系限位钳位；
-     * 机械模式按编码器机械行程限位钳位。*/
-    if (gimbal.pitch.use_imu) {
-        if (gimbal.pitch.target_pitch > gimbal.pitch.imu_max_rad) {
-            gimbal.pitch.target_pitch = gimbal.pitch.imu_max_rad;
-        } else if (gimbal.pitch.target_pitch < gimbal.pitch.imu_min_rad) {
-            gimbal.pitch.target_pitch = gimbal.pitch.imu_min_rad;
-        }
-    } else {
+    /* IMU 目标由下板根据回传机械角动态限位，上板直接使用。
+     * 机械模式仍按编码器机械行程限位。 */
+    if (!gimbal.pitch.use_imu) {
         if (gimbal.pitch.target_pitch > gimbal.pitch.mec_max_rad) {
             gimbal.pitch.target_pitch = gimbal.pitch.mec_max_rad;
         } else if (gimbal.pitch.target_pitch < gimbal.pitch.mec_min_rad) {
