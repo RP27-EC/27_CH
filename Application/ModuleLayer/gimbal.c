@@ -140,8 +140,8 @@ static void Gimbal_External_Date_Update(void)
 
     gimbal.pitch.feedback_pitch = mec_angle;
     gimbal.pitch.feedback_speed = -Pitch_Motor.rx_info->speed;
-    /* IMU 原始 Pitch 约定为向上减小；控制器统一使用向上为正。*/
-    gimbal.pitch.imu_pitch = -imu_sensor.info->base_info.pitch * DEG_TO_RAD;
+    /* 当前安装下实测原始 Pitch 抬头增大，与机械角和角速度同向。 */
+    gimbal.pitch.imu_pitch = imu_sensor.info->base_info.pitch * DEG_TO_RAD;
     /* IMU 角速度约定向上为正，保持原符号。*/
     gimbal.pitch.imu_speed = imu_sensor.info->base_info.rate_pitch * DEG_TO_RAD;
     if (gimbal.pitch.use_imu != (board_rx_info.pitch_use_imu != 0U)) {

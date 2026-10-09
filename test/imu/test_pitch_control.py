@@ -4,6 +4,40 @@ from test_ekf_init import ROOT, run_c
 
 
 class PitchControlTest(unittest.TestCase):
+    def test_upward_motion_has_consistent_local_and_transmitted_feedback(self):
+        source = (ROOT / 'Application/ModuleLayer/gimbal.c').read_text(encoding='utf-8-sig')
+        assignments = '\n'.join(line for line in source.splitlines()
+                                if 'gimbal.pitch.imu_' in line and 'imu_sensor.info->' in line)
+        task = (ROOT / 'Application/TaskLayer/control_task.c').read_text(encoding='utf-8-sig')
+        start = task.index('Board_Comm_Send_Pitch_IMU(')
+        send = task[start:task.index(';', start) + 1]
+        run_c(r'''
+#include <assert.h>
+#include <math.h>
+#define DEG_TO_RAD 0.01745329251994329577f
+struct info {struct {float pitch,rate_pitch;} base_info;} info;
+struct {struct info *info;} imu_sensor;
+struct {struct {float imu_pitch,imu_speed;} pitch;} gimbal;
+float sent_angle,sent_rate;
+void Board_Comm_Send_Pitch_IMU(float angle,float rate){sent_angle=angle;sent_rate=rate;}
+void step(void){
+''' + assignments + '\n' + send + r'''
+}
+int main(void){
+    imu_sensor.info=&info;
+    /* Synthetic upward motion using the sign confirmed on the bench. */
+    info.base_info.pitch=10;info.base_info.rate_pitch=10;step();
+    float previous=gimbal.pitch.imu_pitch;
+    info.base_info.pitch=11;step();
+    assert(gimbal.pitch.imu_pitch>previous);
+    assert(fabsf((gimbal.pitch.imu_pitch-previous)/.1f-gimbal.pitch.imu_speed)<1e-5f);
+    assert(sent_angle==gimbal.pitch.imu_pitch && sent_rate==gimbal.pitch.imu_speed);
+    info.base_info.pitch=10;info.base_info.rate_pitch=-10;step();
+    assert(sent_rate<0 && sent_angle==gimbal.pitch.imu_pitch);
+    info.base_info.rate_pitch=0;step();assert(sent_rate==0);
+}
+''')
+
     def test_imu_targets_pass_through_and_mechanical_targets_remain_limited(self):
         source = (ROOT / 'Application/ModuleLayer/gimbal.c').read_text(encoding='utf-8-sig')
         start = source.index('static void Gimbal_Mech_Target_Update(void)\n{')
