@@ -265,8 +265,10 @@ static void Gimbal_Pitch_Pid_Cal(void)
     speed_pid->out_max = gimbal.pitch.max_torque_limit;
 
     /* ====== 1. 外环角度 PID 计算 ====== */
+    /* 外环按模式选角度反馈；两种模式的速度内环均使用 IMU 角速度。
+     * PID 参数仍按模式独立选择。 */
     const float feedback_pitch = gimbal.pitch.use_imu ? gimbal.pitch.imu_pitch : gimbal.pitch.feedback_pitch;
-    const float feedback_speed = gimbal.pitch.use_imu ? gimbal.pitch.imu_speed : gimbal.pitch.feedback_speed;
+    const float feedback_speed = gimbal.pitch.imu_speed;
     angle_pid->target = gimbal.pitch.target_pitch;
     angle_pid->measure = feedback_pitch;
     pid_err_cal(angle_pid);

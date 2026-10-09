@@ -20,11 +20,11 @@ typedef struct {
     /* 机械角闭环：目标、反馈和速度统一使用 rad / rad/s。*/
     float target_pitch;      /* 下层 0xD1 发送的机械目标角 (rad) */
     float feedback_pitch;    /* 达妙编码器机械角反馈 (rad) */
-    float feedback_speed;
+    float feedback_speed;    /* 编码器速度 (rad/s)，保留用于观测 */
     float imu_pitch;
-    float imu_speed;
+    float imu_speed;         /* 两种模式的速度内环反馈 (rad/s) */
     
-    bool use_imu;            /* 闭环反馈源选择：0=编码器，1=IMU */
+    bool use_imu;            /* 角度外环与 PID 参数组：0=机械，1=IMU */
 
     /* IMU 域限位边界参考：IMU 角 - 机械角的锁存值。实时坐标差里混着
        两个传感器的更新时差，云台一抖边界就跟着抖，必须锁存。 */
