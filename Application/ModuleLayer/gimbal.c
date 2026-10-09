@@ -60,6 +60,10 @@ static void ClearYawPids(Gimbal_t *gimbal) {
     pid_clear(&gimbal->yaw.mec_speed_pid);
     pid_clear(&gimbal->yaw.gyro_angle_pid);
     pid_clear(&gimbal->yaw.gyro_speed_pid);
+    gimbal->yaw.speed_d_last_feedback = 0.0f;
+    gimbal->yaw.speed_d_filtered_delta = 0.0f;
+    gimbal->yaw.speed_d_ready = false;
+    gimbal->yaw.speed_d_pid_mode = gimbal->yaw.pid_mode;
 }
 
 
@@ -94,10 +98,10 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.mec_angle_pid.a = 1.0f;
     gimbal->yaw.mec_speed_pid.kp = 320.0f;
     gimbal->yaw.mec_speed_pid.ki = 0.0f;
-    gimbal->yaw.mec_speed_pid.kd = 0.0f;
+    gimbal->yaw.mec_speed_pid.kd = 20.0f;
     gimbal->yaw.mec_speed_pid.out_max = 2000.0f;//限幅已经修改成正常落地，调试用200
     gimbal->yaw.mec_speed_pid.integral_max = 400.0f;
-    gimbal->yaw.mec_speed_pid.a = 1.0f;
+    gimbal->yaw.mec_speed_pid.a = 0.2f;
 
 
     /* GYRO模式参数：当前未加测速头 */
@@ -110,12 +114,12 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.gyro_angle_pid.a = 1.0f;
     gimbal->yaw.gyro_speed_pid.kp = 560.0f;
     gimbal->yaw.gyro_speed_pid.ki = 0.0f;
-    gimbal->yaw.gyro_speed_pid.kd = 0.0f;
+    gimbal->yaw.gyro_speed_pid.kd = 20.0f;
     /* 陀螺仪速度环输出是最终电流指令，先限制为安全调试值，避免
      * IMU反馈异常或方向不一致时直接满电流疯转。 */
     gimbal->yaw.gyro_speed_pid.out_max = 1800.0f;  //最上面为2000
     gimbal->yaw.gyro_speed_pid.integral_max = 400.0f;
-    gimbal->yaw.gyro_speed_pid.a = 1.0f;
+    gimbal->yaw.gyro_speed_pid.a = 0.2f;
 
     /* 数据清零 */
     gimbal->yaw.target_mec_angle = 0.0f;      /* 机械目标角 */
@@ -497,6 +501,9 @@ static void Gimbal_Pitch_Update(Gimbal_t *gimbal)
 ========================================================================= */
 
 static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
+    if (gimbal->yaw.speed_d_pid_mode != gimbal->yaw.pid_mode) {
+        ClearYawPids(gimbal);
+    }
     pid_ctrl_t *angle_pid = YawAnglePid(gimbal);
     pid_ctrl_t *speed_pid = YawSpeedPid(gimbal);
     /* ====== 休眠模式：立即清空PID并卸力 ====== */
@@ -546,7 +553,20 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
     speed_pid->target = target_speed;
     speed_pid->measure = feedback_speed;
     pid_err_cal(speed_pid);
-    single_pid_ctrl(speed_pid);
+    /* Differentiate feedback only: target changes must not kick the D term.
+       Keep the existing discrete PID gain convention (no division by dt). */
+    if (!gimbal->yaw.speed_d_ready) {
+        gimbal->yaw.speed_d_filtered_delta = 0.0f;
+        gimbal->yaw.speed_d_ready = true;
+    } else {
+        float a = fminf(1.0f, fmaxf(0.0f, speed_pid->a));
+        float delta = gimbal->yaw.speed_d_last_feedback - feedback_speed;
+        gimbal->yaw.speed_d_filtered_delta =
+            a * delta + (1.0f - a) * gimbal->yaw.speed_d_filtered_delta;
+    }
+    gimbal->yaw.speed_d_last_feedback = feedback_speed;
+    single_pid_ctrl_with_dout(speed_pid,
+                             speed_pid->kd * gimbal->yaw.speed_d_filtered_delta);
 
     /* ====== 步骤4：下发控制电流到KT9025电机 ====== */
     // gimbal->yaw.give_current = (int16_t)speed_pid->out;  /* 速度环输出转为电流 */

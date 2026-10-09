@@ -132,6 +132,11 @@ typedef struct {
     pid_ctrl_t gyro_angle_pid;//陀螺仪模式pid
     pid_ctrl_t gyro_speed_pid;
 
+    float speed_d_last_feedback; /* Speed D uses feedback difference per tick. */
+    float speed_d_filtered_delta;
+    bool speed_d_ready;
+    GimbalPidMode_e speed_d_pid_mode;
+
     int16_t give_current;       /* 最终下发力矩电流 */
 } Gimbal_Yaw_t;
 

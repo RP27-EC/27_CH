@@ -5,6 +5,14 @@
 
 void single_pid_ctrl(pid_ctrl_t *pid)
 {
+    float dout = pid->kd * (pid->err - pid->last_err);
+    dout = pid->a * dout + (1.0f - pid->a) * pid->last_dout;
+    single_pid_ctrl_with_dout(pid, dout);
+}
+
+/* Accept an already filtered D term, retaining the shared P/I and limits. */
+void single_pid_ctrl_with_dout(pid_ctrl_t *pid, float filtered_dout)
+{
     /* 注意：误差err由外部计算后设置，不在函数内计算 */
     /* pid->err = pid->target - pid->measure; */
 
@@ -16,12 +24,7 @@ void single_pid_ctrl(pid_ctrl_t *pid)
 
     pid->iout = pid->ki * pid->integral;
 
-    pid->dout = pid->kd * (pid->err - pid->last_err);
-
-/* 微分项低通滤波：
-     * dout = a * dout_new + (1 - a) * dout_last
-     * a为滤波系数 [0, 1] */
-    pid->dout = pid->a * pid->dout + (1.0f - pid->a) * pid->last_dout;
+    pid->dout = filtered_dout;
     pid->last_dout = pid->dout;  /* 关键：务必更新并保存本次滤波后的微分值！ */
 
     /* ===== 累加PID输出 ===== */
@@ -51,4 +54,3 @@ void pid_clear(pid_ctrl_t *pid) {
     pid->out = 0.0f;
     pid->last_dout = 0.0f;
 }
-

@@ -21,6 +21,7 @@ typedef struct pid_ctrl {
 } pid_ctrl_t;
 
 void single_pid_ctrl(pid_ctrl_t *pid);
+void single_pid_ctrl_with_dout(pid_ctrl_t *pid, float filtered_dout);
 void pid_err_cal(pid_ctrl_t *pid);
 void pid_clear(pid_ctrl_t *pid);
 
