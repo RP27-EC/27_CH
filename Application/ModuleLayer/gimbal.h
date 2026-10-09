@@ -71,6 +71,7 @@ extern Gimbal_t gimbal;
 /* 外部调用函数声明 */
 void Gimbal_Init(void);
 void Gimbal_Work(void);
+void Gimbal_External_Date_Update(void); /* 刷新反馈和控制域，不驱动电机 */
 void Gimbal_Safe_Stop(void);
 
 #endif /* GIMBAL_H */

@@ -40,7 +40,10 @@ static Motor_DM_Born_Info_t Pitch_Motor_Born = {
 };
 static Motor_DM_Rx_Info_t Pitch_Motor_Rx;
 static Motor_DM_Tx_Info_t Pitch_Motor_Tx;
-static Motor_DM_State_t Pitch_Motor_State;
+static Motor_DM_State_t Pitch_Motor_State = {
+    .status = DEV_OFFLINE,
+    .motor_state = Motor_Unenable,
+};
 Motor_DM_t Pitch_Motor = {
     .born_info = &Pitch_Motor_Born,
     .rx_info = &Pitch_Motor_Rx,
@@ -80,7 +83,9 @@ void DM_Single_Motor_Sleep(Motor_DM_t *motor)
 		motor->tx_info->torque = 0;
 		motor->tx_info->Kd = 0;
 		motor->tx_info->Kp = 0;
-		if (motor->state->motor_state == Motor_Enable) {
+		/* 离线时继续发失能命令以获取反馈，避免等待机械角与等待使能互锁。 */
+		if (motor->state->motor_state == Motor_Enable ||
+		    motor->state->status == DEV_OFFLINE) {
 			Motor_Send_Command(motor, Exit_Motor_Mode);
 		}
 		motor->state->motor_state = Motor_Unenable;
@@ -221,6 +226,7 @@ static void Motor_ReceiveData(Motor_DM_t *motor, uint8_t *rxBuf)
 
 	/* 清零离线计数器，表示刚收到有效数据 */
 	motor->state->offline_cnt = 0;
+	motor->state->status = DEV_ONLINE;
 }
 
 /**
@@ -230,19 +236,16 @@ static void Motor_ReceiveData(Motor_DM_t *motor, uint8_t *rxBuf)
   */
 static void DM_Motor_Hearbeat(Motor_DM_t *motor)
 {
-	motor->state->offline_cnt++;
-	
-	if(motor->state->offline_cnt > motor->state->offline_cnt_max) 
+	if (motor->state->offline_cnt < motor->state->offline_cnt_max)
 	{
-		motor->state->offline_cnt = motor->state->offline_cnt_max;
+		motor->state->offline_cnt++;
+	}
+	else
+	{
 		motor->state->status = DEV_OFFLINE;
 		motor->state->motor_state = Motor_Unenable;
 	}
-	else 
-	{
-		if(motor->state->status == DEV_OFFLINE)
-			motor->state->status = DEV_ONLINE;
-	}
+	/* 只有接收反馈才能恢复在线；心跳不能凭计数值恢复在线。 */
 }
 
 /**
@@ -262,6 +265,8 @@ void DM_Single_Motor_Init(Motor_DM_t *motor)
 	motor->state->motor_state = Motor_Unenable;
 	motor->state->last_motor_state = Motor_Unenable;
 	motor->state->offline_cnt_max = 100;
+	motor->state->offline_cnt = 0;
+	motor->state->status = DEV_OFFLINE;
 	motor->rx_info->motor_angle_sum = 0;
 }
 /* ========================================== 电机组控制函数 ========================================== */

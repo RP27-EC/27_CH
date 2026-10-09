@@ -25,7 +25,7 @@ Gimbal_t gimbal = {
 };
 
 /* 内部私有函数声明 */
-static void Gimbal_External_Date_Update(void);
+void Gimbal_External_Date_Update(void);
 
 /* 本车标定：云台处于机械中位时的电机编码器中值(rad，约 42.2°) */
 #define PITCH_MOTOR_ENCODER_MIDDLE (0.736945152f)
@@ -160,7 +160,7 @@ void Gimbal_Init(void)
 }
 
 
-static void Gimbal_External_Date_Update(void)
+void Gimbal_External_Date_Update(void)
 {
     /*
      * Pitch 主反馈改用达妙 J4310 内部编码器。

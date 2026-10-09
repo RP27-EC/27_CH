@@ -7,6 +7,7 @@
 #include "board_comm.h"
 #include "gimbal.h"
 #include "shoot.h"          /* 摩擦轮控制模块 */
+#include "DM_Motor.h"
 
 /* Private macro -------------------------------------------------------------*/
 /**
@@ -55,6 +56,8 @@ void StartControlTask(void const * argument)
         if (imu_valid) {
             Gimbal_Work();
         } else {
+            /* 停止驱动时仍刷新机械角，供下板限位及恢复时重建目标。 */
+            Gimbal_External_Date_Update();
             Gimbal_Safe_Stop();
         }
 
@@ -65,7 +68,9 @@ void StartControlTask(void const * argument)
          * 通过 0x023 发摩擦轮就绪状态给下层板，供其做摩擦轮安全锁。
          * 无条件每个周期发送，下层板才不会因超时退回延时门禁。
          */
-        Board_Comm_Send_State(gimbal.pitch.feedback_pitch, imu_valid);
+        /* 机械角有效性只取决于编码器反馈，不能借用 IMU 校准/错误状态。 */
+        Board_Comm_Send_State(gimbal.pitch.feedback_pitch,
+                              Pitch_Motor.state->status == DEV_ONLINE);
 
         /* 任务控制周期延时2ms，确保500Hz的稳定控制频率 */
         osDelay(2);

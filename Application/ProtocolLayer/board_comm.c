@@ -45,11 +45,16 @@ HAL_StatusTypeDef Board_Comm_Send_State(float pitch_mech_rad, bool pitch_valid)
 {
     uint8_t tx_buf[8] = {0};
     tx_buf[0] = board_tx_info.fric_state;
-    if (pitch_valid && isfinite(pitch_mech_rad)) {
+    board_tx_info.pitch_mech_valid = pitch_valid && isfinite(pitch_mech_rad);
+    if (board_tx_info.pitch_mech_valid) {
         memcpy(&tx_buf[1], &pitch_mech_rad, sizeof(float));
         tx_buf[5] = PITCH_MECH_VALID_MARKER;
     }
-    return CAN_SendData(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf);
+    HAL_StatusTypeDef result = CAN_SendData(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf);
+    if (result != HAL_OK) {
+        board_tx_info.state_tx_fail_count++;
+    }
+    return result;
 }
 
 //解析下层板发送的 0xD1 报文，得到遥控数据的pitch目标与摩擦轮开关

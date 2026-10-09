@@ -27,6 +27,8 @@ typedef struct {
 /* 板间通信发送数据结构体 */
 typedef struct {
     uint8_t fric_state;    /* 0x023 byte[0]：摩擦轮状态 flags，见 FRIC_STATE_* */
+    bool pitch_mech_valid; /* 本次发送的机械角有效位，仅供本地诊断 */
+    uint32_t state_tx_fail_count; /* 0x023 CAN 入队失败累计次数 */
 } Board_Tx_Info_t;
 
 extern Board_Rx_Info_t board_rx_info;
