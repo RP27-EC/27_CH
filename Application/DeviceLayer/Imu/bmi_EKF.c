@@ -46,11 +46,11 @@ arm_matrix_instance_f32 EKFDst;    /* EKF 用目标向量（1x3） */
 /**
  * @brief EKF 坐标变换参数
  * 与 bmi.c 中的 gim_trans 类似，用于将陀螺仪坐标变换为云台坐标
- * arz=90 度表示 IMU 安装时绕 Z 轴旋转了 90 度
+ * 倒扣安装：与 Mahony 分支保持相同的 180/180/0 安装变换。
  */
 gimbal_transform_t EKFgim_trans = {
-    .arz = 90.0f,   /* Z 轴旋转角度：90度 */
-    .ary = 0.0f,    /* Y 轴旋转角度：0度 */
+    .arz = 180.0f,  /* Z 轴旋转角度 */
+    .ary = 180.0f,  /* Y 轴旋转角度 */
     .arx = 0.0f,    /* X 轴旋转角度：0度 */
     .trans = {0.0f}, /* 变换矩阵数组 */
 };
@@ -203,6 +203,12 @@ void IMU_QuaternionEKF_Init(float* init_quaternion, float process_noise1,
 void IMU_QuaternionEKF_Update(float gx, float gy, float gz,
                               float ax, float ay, float az, float dt)
 {
+    /* 无效采样不进入矩阵运算，保留上一次有效估计。 */
+    float accel_norm_sq = ax * ax + ay * ay + az * az;
+    if (!isfinite(dt) || dt <= 0.0f || dt > 0.01f ||
+        !isfinite(gx) || !isfinite(gy) || !isfinite(gz) ||
+        !isfinite(accel_norm_sq) || accel_norm_sq < 1e-6f)
+        return;
     /* 临时变量：0.5 * (omega - bias) * dt，用于状态转移矩阵 */
     static float halfgxdt, halfgydt, halfgzdt;
     /* 加速度计归一化因子的倒数 */
@@ -341,6 +347,10 @@ void IMU_QuaternionEKF_Update(float gx, float gy, float gz,
     QEKF_INS.q[2] = QEKF_INS.IMU_QuaternionEKF.FilteredValue[2];
     QEKF_INS.q[3] = QEKF_INS.IMU_QuaternionEKF.FilteredValue[3];
 
+    /* 量测修正后重新归一化，同时同步下一次预测的状态。 */
+    arm_quaternion_normalize_f32(QEKF_INS.q, QEKF_INS.q, 1);
+    memcpy(QEKF_INS.IMU_QuaternionEKF.xhat_data, QEKF_INS.q, sizeof(float) * 4);
+
     /* 陀螺仪零偏估计值 */
     QEKF_INS.GyroBias[0] = QEKF_INS.IMU_QuaternionEKF.FilteredValue[4];
     QEKF_INS.GyroBias[1] = QEKF_INS.IMU_QuaternionEKF.FilteredValue[5];
@@ -360,6 +370,7 @@ void IMU_QuaternionEKF_Update(float gx, float gy, float gz,
     /* Pitch: 使用 atan2 避免万向节锁 */
     float sintemp, costemp;
     sintemp = -2.0f * (QEKF_INS.q[1] * QEKF_INS.q[3] - QEKF_INS.q[0] * QEKF_INS.q[2]);
+    sintemp = fmaxf(-1.0f, fminf(1.0f, sintemp));
     arm_sqrt_f32(1 - sintemp*sintemp, &costemp);
     arm_atan2_f32(sintemp, costemp, &QEKF_INS.Pitch);
 
@@ -549,6 +560,13 @@ static void IMU_QuaternionEKF_xhatUpdate(KalmanFilter_t *kf)
 
     /* temp_matrix1 = inv(S) = inv(H * P' * HT + R) (3x3) */
     kf->MatStatus = Matrix_Inverse(&kf->S, &kf->temp_matrix1);
+    if (kf->MatStatus != ARM_MATH_SUCCESS)
+    {
+        memcpy(kf->xhat_data, kf->xhatminus_data, sizeof_float * kf->xhatSize);
+        memcpy(kf->P_data, kf->Pminus_data, sizeof_float * kf->xhatSize * kf->xhatSize);
+        kf->SkipEq5 = TRUE;
+        return;
+    }
 
     /* 保存预测四元数 */
     q0 = kf->xhatminus_data[0];
@@ -572,7 +590,7 @@ static void IMU_QuaternionEKF_xhatUpdate(KalmanFilter_t *kf)
      */
     for (uint8_t i = 0; i < 3; ++i)
     {
-        QEKF_INS.OrientationCosine[i] = acosf(fabsf(kf->temp_vector_data[i]));
+        QEKF_INS.OrientationCosine[i] = acosf(fminf(1.0f, fabsf(kf->temp_vector_data[i])));
     }
 
     /* 计算残差：z - h(xhat') = 实际加速度 - 预测重力方向 */

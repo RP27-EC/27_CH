@@ -274,6 +274,7 @@ static float imu_dt;
 static uint32_t imu_tick_now;
 /** @brief EKF 上次时间戳（微秒） */
 static uint32_t imu_tick_last;
+static uint8_t imu_tick_initialized;
 #endif
 
 /**
@@ -399,10 +400,11 @@ void imu_update(imu_sensor_t *imu_sen)
     /* 计算采样时间 */
     imu_tick_now = micros();  /* 获取当前微秒时间戳 */
 
-    if(imu_tick_last == 0)
+    if(!imu_tick_initialized)
     {
-        /* 第一次调用特殊处理：假设采样间隔为 1ms */
-        imu_tick_last = imu_tick_now - 1000;
+        /* 第一次调用使用控制任务的标称周期 2ms。 */
+        imu_tick_last = imu_tick_now - 2000u;
+        imu_tick_initialized = 1;
     }
 
     /* 计算采样周期（秒） */
@@ -410,13 +412,9 @@ void imu_update(imu_sensor_t *imu_sen)
     imu_tick_last = imu_tick_now;
 
     /* 防止定时器异常导致 dt 过大 */
-    if(imu_dt > 1)
-    {
-        imu_dt = 0.001f;  /* 默认 1ms */
-    }
-
-    /* 核心函数：EKF 更新四元数并提取欧拉角 */
-    IMU_QuaternionEKF_Update(gyrox, gyroy, gyroz, accx, accy, accz, imu_dt);
+    /* uint32_t 差值支持正常回绕；重复或长间隔不伪造积分时间。 */
+    if (imu_dt > 0.0f && imu_dt <= 0.01f)
+        IMU_QuaternionEKF_Update(gyrox, gyroy, gyroz, accx, accy, accz, imu_dt);
 
     /* 从 EKF 结构体中提取结果 */
     imu_info->base_info.yaw = QEKF_INS.Yaw;
@@ -440,16 +438,22 @@ void imu_update(imu_sensor_t *imu_sen)
      * 角速度单位转换：rad/s -> deg/s（除以 0.017453 = 乘以 57.2958）
      * 然后进行均值滤波（窗口大小为 3）
      */
+    float real_gyrox = gyrox_;
+    float real_gyroy = gyroy_;
+#if IMU_USE_EKF == 1
+    real_gyrox -= QEKF_INS.GyroBias[0];
+    real_gyroy -= QEKF_INS.GyroBias[1];
+#endif
     /* Pitch 轴角速度 */
-    imu_info->base_info.rate_pitch = gyroy_ / (double)0.017453;
+    imu_info->base_info.rate_pitch = real_gyroy / 0.0174532925f;
     imu_info->base_info.ave_rate_pitch = ave_fil_update(&imu_pitch_dif_speed_ave_filter, imu_info->base_info.rate_pitch, 3);
 
     /* Roll 轴角速度 */
-    imu_info->base_info.rate_roll = gyrox_ / (double)0.017453;
+    imu_info->base_info.rate_roll = real_gyrox / 0.0174532925f;
     imu_info->base_info.ave_rate_roll = ave_fil_update(&imu_roll_dif_speed_ave_filter, imu_info->base_info.rate_roll, 3);
 
     /* Yaw 轴角速度 */
-    imu_info->base_info.rate_yaw = gyroz_ / (double)0.017453;
+    imu_info->base_info.rate_yaw = gyroz_ / 0.0174532925f;
     imu_info->base_info.ave_rate_yaw = ave_fil_update(&imu_yaw_dif_speed_ave_filter, imu_info->base_info.rate_yaw, 3);
 
     /* 清零离线计数器（表示数据正常接收） */
@@ -508,6 +512,21 @@ static void InitQuaternion(float *init_q4)
     for (uint8_t i = 0; i < 3; ++i)
         acc_init[i] = acc_sum[i] / 100;
 
+    /* 初始化和运行阶段必须使用同一个安装坐标系。 */
+    float gx, gy, gz, ax, ay, az;
+    Vector_Transform(0, 0, 0, acc_init[0], acc_init[1], acc_init[2],
+                     &gx, &gy, &gz, &ax, &ay, &az);
+    acc_init[0] = ax;
+    acc_init[1] = ay;
+    acc_init[2] = az;
+    float norm_sq = ax * ax + ay * ay + az * az;
+    if (!isfinite(norm_sq) || norm_sq < 1e-6f)
+    {
+        init_q4[0] = 1.0f;
+        init_q4[1] = init_q4[2] = init_q4[3] = 0.0f;
+        return;
+    }
+
     /* 从加速度计数据计算初始欧拉角 */
     float pitch, roll, temp;
     arm_sqrt_f32(acc_init[1] * acc_init[1] + acc_init[2] * acc_init[2], &temp);  /* sqrt(ay^2 + az^2) */
@@ -520,9 +539,9 @@ static void InitQuaternion(float *init_q4)
 
     /* 四元数计算公式（ZYX 欧拉角 -> 四元数） */
     init_q4[0] = arm_cos_f32(half_pitch) * arm_cos_f32(half_roll);  /* q0 = cos(p/2)*cos(r/2) */
-    init_q4[1] = arm_sin_f32(half_pitch) * arm_cos_f32(half_roll);  /* q1 = sin(p/2)*cos(r/2) */
-    init_q4[2] = arm_cos_f32(half_pitch) * arm_sin_f32(half_roll);  /* q2 = cos(p/2)*sin(r/2) */
-    init_q4[3] = arm_sin_f32(half_pitch) * arm_sin_f32(half_roll);  /* q3 = sin(p/2)*sin(r/2) */
+    init_q4[1] = arm_cos_f32(half_pitch) * arm_sin_f32(half_roll);  /* q1: roll */
+    init_q4[2] = arm_sin_f32(half_pitch) * arm_cos_f32(half_roll);  /* q2: pitch */
+    init_q4[3] = -arm_sin_f32(half_pitch) * arm_sin_f32(half_roll); /* q3: yaw=0 */
 }
 
 #endif  /* IMU_USE_EKF */

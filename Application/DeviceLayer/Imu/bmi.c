@@ -54,8 +54,8 @@ arm_matrix_instance_f32 Dst;    /* 目标向量 */
  * @arx 陀螺仪 Y 轴与 yaw 轴之间的夹角（度），默认 0 度
  */
 gimbal_transform_t gim_trans = {
-    .arz = 90.0f,   /* Z 轴旋转角度：90度 */
-    .ary = 0.0f,    /* Y 轴旋转角度：0度 */
+    .arz = 180.0f,   /* Z 轴旋转角度 */
+    .ary = 180.0f,    /* Y 轴旋转角度 */
     .arx = 0.0f,    /* X 轴旋转角度：0度 */
     .trans = {0.0f}, /* 变换矩阵数组（3x3 = 9个元素） */
 };
