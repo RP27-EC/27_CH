@@ -1,0 +1,218 @@
+/**
+  ******************************************************************************
+  * @file           : gimbal.c
+  * @brief          : 涓婂眰鏉夸簯鍙?Pitch 鎺у埗瀹炵幇锛堣揪濡?J4310 鍙岀幆 PID 闂幆锛?
+  ******************************************************************************
+  */
+#include "gimbal.h"
+#include "board_comm.h"
+#include "imu_sensor.h"
+#include "dm_motor.h"         /* 杈惧 J4310 鐢垫満椹卞姩澶存枃浠?*/
+#include <math.h>
+
+#define DEG_TO_RAD (0.01745329251994329577f)
+
+/* 浜戝彴鍏ㄥ眬绠＄悊瀹炰綋 */
+Gimbal_t gimbal = {
+    .init = Gimbal_Init,
+    .work = Gimbal_Work,
+};
+
+/* 鍐呴儴绉佹湁鍑芥暟澹版槑 */
+static void Gimbal_External_Date_Update(void);
+
+/* 鏈溅鏍囧畾锛氫簯鍙板浜庢満姊颁腑浣嶆椂鐨勭數鏈虹紪鐮佸櫒瑙?(rad锛岀害 42.2掳) */
+#define PITCH_MOTOR_ENCODER_MIDDLE (0.736945152f)
+#define PITCH_MOTOR_HALF_RANGE     (3.14159265358979323846f)
+static void Gimbal_Mech_Target_Update(void);
+static void Gimbal_Pitch_Pid_Cal(void);
+
+static void Gimbal_Pitch_Clear_Pids(void)
+{
+    pid_clear(&gimbal.pitch.mech_angle_pid);
+    pid_clear(&gimbal.pitch.mech_speed_pid);
+    pid_clear(&gimbal.pitch.imu_angle_pid);
+    pid_clear(&gimbal.pitch.imu_speed_pid);
+}
+
+void Gimbal_Safe_Stop(void)
+{
+    Gimbal_Pitch_Clear_Pids();
+    gimbal.pitch.give_torque = 0.0f;
+    if (Pitch_Motor.single_sleep != NULL) {
+        Pitch_Motor.single_sleep(&Pitch_Motor);
+    }
+}
+
+/*
+ * Pitch 閲嶅姏鍓嶉琛ュ伩锛?
+ * 骞呭€煎拰鐩镐綅閫氳繃 gimbal.pitch 鎴愬憳鍦ㄧ嚎璋冩暣锛?
+ * 鑻ヨˉ鍋挎柟鍚戠浉鍙嶏紝灏?gravity_max_torque 鏀逛负璐熷€笺€?
+ */
+static float Pitch_Gravity_Compensation(float pitch_rad)
+{
+    const float max_torque = gimbal.pitch.use_imu ? gimbal.pitch.imu_gravity_max_torque : gimbal.pitch.mech_gravity_max_torque;
+    const float phase_deg = gimbal.pitch.use_imu ? gimbal.pitch.imu_gravity_phase_deg : gimbal.pitch.mech_gravity_phase_deg;
+    return max_torque *
+           cosf(pitch_rad + phase_deg * DEG_TO_RAD);
+}
+
+
+void Gimbal_Init(void)
+{
+    Pitch_Motor.single_init(&Pitch_Motor);
+    gimbal.pitch.mech_gravity_max_torque = 1.5f;
+    gimbal.pitch.imu_gravity_max_torque = 1.5f;//閲嶅姏鍓嶉姝ゅ
+    gimbal.pitch.mech_gravity_phase_deg = 0.0f;
+    gimbal.pitch.imu_gravity_phase_deg = 0.0f;
+    gimbal.pitch.max_torque_limit = 3.5f;//鍔涚煩闄愬埗浠?.5涓嬮檷鑷?.8闃叉鏆磋蛋鐮稿ご
+    gimbal.pitch.max_speed_limit = 6.0f;//鏈€澶ц閫熷害浠?.0涓嬮檷鑷?.0rad/s
+  
+    /* ====== 澶栫幆瑙掑害 PID锛堢函 P 鎺у埗锛屽缓绔嬭窡韪垰搴︼級 ====== */
+    gimbal.pitch.mech_angle_pid.kp = 12.0f;
+    gimbal.pitch.mech_angle_pid.ki = 0.0f;
+    gimbal.pitch.mech_angle_pid.kd = 0.0f;
+    gimbal.pitch.mech_angle_pid.out_max = gimbal.pitch.max_speed_limit;
+    gimbal.pitch.mech_angle_pid.integral_max = 0.0f;
+
+    /* ====== 鍐呯幆閫熷害 PID锛圥I 鎺у埗锛屾彁渚涢珮闃诲凹涓庢姉鎵帮級 ====== */
+    /* 杈惧 J4310 棰濆畾鍔涚煩绾?3.5 ~ 7 N路m锛岃緭鍑洪檺骞呭缓璁厛璁?3.5 N路m */
+    gimbal.pitch.mech_speed_pid.kp = 0.8f;  // 淇濇寔宸查獙璇佺殑杩愬姩鏂瑰悜鍙傛暟
+    gimbal.pitch.mech_speed_pid.ki = 0.1f;  //淇濇寔灏忕Н鍒嗘秷鎽╂摝鍔?
+    gimbal.pitch.mech_speed_pid.kd = 0.0f;
+    gimbal.pitch.mech_speed_pid.out_max = gimbal.pitch.max_torque_limit;
+    gimbal.pitch.mech_speed_pid.integral_max = 1.0f;
+    gimbal.pitch.imu_angle_pid = gimbal.pitch.mech_angle_pid;
+    gimbal.pitch.imu_speed_pid = gimbal.pitch.mech_speed_pid;
+
+    /* 鏁版嵁娓呴浂 */
+    gimbal.pitch.target_pitch = 0.0f;
+    gimbal.pitch.feedback_pitch = 0.0f;
+    gimbal.pitch.feedback_speed = 0.0f;
+    gimbal.pitch.imu_pitch = 0.0f;
+    gimbal.pitch.imu_speed = 0.0f;
+    gimbal.pitch.use_imu = false;
+    /* Feedback convention: up is positive, down is negative. */
+    gimbal.pitch.mec_min_rad = -12.0f * DEG_TO_RAD;
+    gimbal.pitch.mec_max_rad = 0.35f;
+    gimbal.pitch.give_torque = 0.0f;
+
+    Gimbal_Pitch_Clear_Pids();
+}
+
+
+static void Gimbal_External_Date_Update(void)
+{
+    /*
+     * Pitch 涓诲弽棣堟敼鐢ㄨ揪濡?J4310 鍐呴儴缂栫爜鍣ㄣ€?
+     * motor_angle 宸茬敱椹卞姩瑙ｇ爜涓?-PI~PI(rad)锛涘弬鑰冨伐绋嬩娇鐢?
+     * 鈥滅紪鐮佸櫒涓€?+ 鏂瑰悜鍙栧弽鈥濆緱鍒版満姊板潗鏍囥€?
+     * 杩欓噷涓嶅啀鎶?IMU Pitch 鐢ㄤ綔闂幆鍙嶉锛岄伩鍏?IMU 瑙掑害鑼冨洿寮傚父褰卞搷鎺у埗銆?
+     */
+    float mec_angle = -(Pitch_Motor.rx_info->motor_angle - PITCH_MOTOR_ENCODER_MIDDLE);
+    while (mec_angle > PITCH_MOTOR_HALF_RANGE) mec_angle -= 2.0f * PITCH_MOTOR_HALF_RANGE;
+    while (mec_angle < -PITCH_MOTOR_HALF_RANGE) mec_angle += 2.0f * PITCH_MOTOR_HALF_RANGE;
+
+    gimbal.pitch.feedback_pitch = mec_angle;
+    gimbal.pitch.feedback_speed = -Pitch_Motor.rx_info->speed;
+    /* IMU 鍘熷 Pitch 绾﹀畾涓哄悜涓婂噺灏忥紱鎺у埗鍣ㄧ粺涓€浣跨敤鍚戜笂涓烘銆?*/
+    gimbal.pitch.imu_pitch = -imu_sensor.info->base_info.pitch * DEG_TO_RAD;
+    /* IMU 瑙掗€熷害绾﹀畾鍚戜笂涓烘锛屼繚鎸佸師绗﹀彿銆?*/
+    gimbal.pitch.imu_speed = imu_sensor.info->base_info.rate_pitch * DEG_TO_RAD;
+    if (gimbal.pitch.use_imu != (board_rx_info.pitch_use_imu != 0U)) {
+        Gimbal_Pitch_Clear_Pids();
+    }
+    gimbal.pitch.use_imu = (board_rx_info.pitch_use_imu != 0U);
+
+}
+
+static void Gimbal_Mech_Target_Update(void)
+{
+    /* 浠?0xD1 鎺ユ敹缂撳瓨涓幏鍙栦笅灞傛澘璁＄畻鍑虹殑 Pitch 鏈烘鐩爣瑙?rad) */
+    /* 0xD1 鎺ユ敹缂栫爜鍣ㄦ満姊扮洰鏍囪(rad)銆?*/
+
+    /* 涓嬩綅鏈轰笌缂栫爜鍣ㄥ弽棣堢粺涓€涓衡€滃悜涓婁负姝ｂ€濓紝涓嶅啀鍙嶅悜瑙ｉ噴鐩爣瑙掋€?*/
+    gimbal.pitch.target_pitch = board_rx_info.pitch_encoder_tar;
+    /* Translate encoder travel limits into the active angle frame. */
+    const float offset = gimbal.pitch.use_imu ?
+        gimbal.pitch.imu_pitch - gimbal.pitch.feedback_pitch : 0.0f;
+    const float min_target = offset + gimbal.pitch.mec_min_rad;
+    const float max_target = offset + gimbal.pitch.mec_max_rad;
+    if (gimbal.pitch.target_pitch > max_target) {
+        gimbal.pitch.target_pitch = max_target;
+    } else if (gimbal.pitch.target_pitch < min_target) {
+        gimbal.pitch.target_pitch = min_target;
+    }
+}
+
+
+static void Gimbal_Pitch_Pid_Cal(void)
+{
+    /* ====== 閫氫俊鏂仈瀹夊叏淇濇姢 ====== */
+    /* 鑻ヨ秴杩?100ms 娌℃敹鍒颁笅灞傛澘 0xD1 鎶ユ枃锛岀數鏈哄繀椤诲嵏鍔涙竻绌?PID锛岄槻姝㈡毚璧?*/
+    if (!board_rx_info.is_online || !board_rx_info.pitch_enable ||
+        Pitch_Motor.single_set_torque == NULL ||
+        Pitch_Motor.tx_info == NULL) {
+        Gimbal_Safe_Stop();
+        return;
+    }
+
+    /* 姣忎釜鎺у埗鍛ㄦ湡鍚屾闄愬箙锛屼娇 Keil Watch 涓殑淇敼绔嬪嵆鐢熸晥銆?*/
+    pid_ctrl_t *angle_pid = gimbal.pitch.use_imu ? &gimbal.pitch.imu_angle_pid : &gimbal.pitch.mech_angle_pid;
+    pid_ctrl_t *speed_pid = gimbal.pitch.use_imu ? &gimbal.pitch.imu_speed_pid : &gimbal.pitch.mech_speed_pid;
+    angle_pid->out_max = gimbal.pitch.max_speed_limit;
+    speed_pid->out_max = gimbal.pitch.max_torque_limit;
+
+    /* ====== 1. 澶栫幆瑙掑害 PID 璁＄畻 ====== */
+    const float feedback_pitch = gimbal.pitch.use_imu ? gimbal.pitch.imu_pitch : gimbal.pitch.feedback_pitch;
+    const float feedback_speed = gimbal.pitch.use_imu ? gimbal.pitch.imu_speed : gimbal.pitch.feedback_speed;
+    angle_pid->target = gimbal.pitch.target_pitch;
+    angle_pid->measure = feedback_pitch;
+    pid_err_cal(angle_pid);
+    single_pid_ctrl(angle_pid);
+
+    /* 澶栫幆杈撳嚭鍗充负鏈熸湜瑙掗€熷害 (rad/s) */
+    float target_speed = angle_pid->out;
+
+    /* ====== 2. 鍐呯幆閫熷害 PID 璁＄畻 ====== */
+    speed_pid->target = target_speed;
+    speed_pid->measure = feedback_speed;
+    pid_err_cal(speed_pid);
+    single_pid_ctrl(speed_pid);
+
+    /* ====== 3. 杈惧 DM-J4310 鐢垫満鍔涚煩涓嬪彂 ====== */
+    /* PID 鍔ㄦ€佸姏鐭╁彔鍔犻噸鍔涘墠棣堬紝骞堕檺鍒舵渶缁堣緭鍑鸿寖鍥?*/
+    /* 缂栫爜鍣ㄥ弽棣堝潗鏍囧凡鍙栧弽锛岀數鏈哄姏鐭╂柟鍚戜篃闇€鍙栧弽锛涢噸鍔涘墠棣堜繚鎸佸師鏈夋柟鍚戙€?*/
+    /* 淇濇寔宸查獙璇佺殑鐢垫満鏂瑰悜锛氬弽棣堝潗鏍囧彇鍙嶅悗锛孭ID 鍔涚煩闇€瑕佸彇鍙嶏紱閲嶅姏鍓嶉鏂瑰悜涓嶅彉銆?*/
+    gimbal.pitch.give_torque = -speed_pid->out +
+                               Pitch_Gravity_Compensation(feedback_pitch);
+    
+
+    if (gimbal.pitch.give_torque > gimbal.pitch.max_torque_limit) {
+        gimbal.pitch.give_torque = gimbal.pitch.max_torque_limit;
+    } else if (gimbal.pitch.give_torque < -gimbal.pitch.max_torque_limit) {
+        gimbal.pitch.give_torque = -gimbal.pitch.max_torque_limit;
+    }
+
+//    /* Hard mechanical boundary: only allow torque back toward the valid range. */
+//    if (gimbal.pitch.feedback_pitch >= gimbal.pitch.mec_max_rad &&
+//        gimbal.pitch.give_torque > 0.0f) {
+//        gimbal.pitch.give_torque = 0.0f;
+//    } else if (gimbal.pitch.feedback_pitch <= gimbal.pitch.mec_min_rad &&
+//               gimbal.pitch.give_torque < 0.0f) {
+//        gimbal.pitch.give_torque = 0.0f;
+//    }
+
+    /* 涓嬪彂鍔涚煩鍒?Pitch 鐢垫満 */
+    Pitch_Motor.tx_info->torque = gimbal.pitch.give_torque;
+    Pitch_Motor.single_set_torque(&Pitch_Motor);
+}
+
+/* Top-level Pitch control scheduler, called from gimbal.work(). */
+void Gimbal_Work(void)
+{
+    Gimbal_External_Date_Update();
+    Gimbal_Mech_Target_Update();
+    Gimbal_Pitch_Pid_Cal();
+}
+

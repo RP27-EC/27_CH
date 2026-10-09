@@ -1,5 +1,6 @@
 #include "board_comm.h"
 #include <string.h>
+#include <math.h>
 
 extern CAN_HandleTypeDef hcan2;
 
@@ -25,17 +26,29 @@ HAL_StatusTypeDef Board_Comm_Send_IMU(float yaw_angle_rad, float yaw_rate_rad_s)
     return CAN_SendData(&hcan2, MASTER_RX_YAW_IMU_CAN_ID, tx_buf);
 }
 
+HAL_StatusTypeDef Board_Comm_Send_Pitch_IMU(float pitch_angle_rad, float pitch_rate_rad_s)
+{
+    uint8_t tx_buf[8];
+    memcpy(&tx_buf[0], &pitch_angle_rad, sizeof(float));
+    memcpy(&tx_buf[4], &pitch_rate_rad_s, sizeof(float));
+    return CAN_SendData(&hcan2, MASTER_RX_PITCH_IMU_CAN_ID, tx_buf);
+}
+
 /**
- * @brief  发送 0x023 摩擦轮状态帧给下层板
+ * @brief  发送 0x023 摩擦轮状态与 Pitch 机械角给下层板
  * @note   byte[0] 为 flags：bit0 已达速，bit1 全部在线。
  *         下层板用它做摩擦轮就绪安全锁，未就绪不许拨盘动作。
+ *         byte[1..4] 为机械角(rad)，byte[5] 为有效标记。
  *         每个控制周期无条件发送，避免下层板因超时退回延时门禁。
  */
-HAL_StatusTypeDef Board_Comm_Send_State(void)
+HAL_StatusTypeDef Board_Comm_Send_State(float pitch_mech_rad, bool pitch_valid)
 {
     uint8_t tx_buf[8] = {0};
     tx_buf[0] = board_tx_info.fric_state;
-    /* tx_buf[1..7] 预留给后续扩展 */
+    if (pitch_valid && isfinite(pitch_mech_rad)) {
+        memcpy(&tx_buf[1], &pitch_mech_rad, sizeof(float));
+        tx_buf[5] = PITCH_MECH_VALID_MARKER;
+    }
     return CAN_SendData(&hcan2, MASTER_RX_STATE_CAN_ID, tx_buf);
 }
 
@@ -49,7 +62,8 @@ void Board_Comm_Rx_D1(uint8_t *rx_buf)
     /* 对应下层板，直接将前 4 字节 memcpy 为 float 目标角 */
     memcpy(&board_rx_info.pitch_encoder_tar, &rx_buf[0], sizeof(float)); /* 0xD1：接收编码器机械目标角(rad) */
     board_rx_info.pitch_enable = rx_buf[4] ? 1U : 0U;
-    board_rx_info.is_fric_on = rx_buf[5]; /* 0xD1 byte[5]：摩擦轮开关 */
+    board_rx_info.is_fric_on = rx_buf[5];
+    board_rx_info.pitch_use_imu = rx_buf[6] ? 1U : 0U;
 
     /* 收到有效数据，清零离线计数器，标记在线 */
     board_rx_info.offline_cnt = 0;

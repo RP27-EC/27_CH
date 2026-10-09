@@ -260,3 +260,27 @@ void Time_Trigger_inloop(Time_trigger_t *Time_trigger_struct)
 		*Time_trigger_struct->private_flag = Time_trigger_struct->flag_before_trigger;
 	}
 }
+
+/**
+ * @brief  分段线性映射（带输入限幅）
+ * @param  in_min/in_max:   输入区间（要求 in_min < in_max）
+ * @param  in_value:       输入值
+ * @param  out_min/out_max: 输出区间对应值
+ * @retval float            映射结果（输入超界时钳位到端点输出）
+ * @note   将 [in_min, in_max] 线性映射到 [out_min, out_max]，
+ *         输入超出范围时输出对应端点值（不外推）。
+ *         典型应用：重力前馈的分段线性过渡、遥控器值域映射。
+ */
+float LinearMapClamp(float in_min, float in_max, float in_value, float out_min, float out_max)
+{
+	if (in_value < in_min)
+		in_value = in_min;
+
+	if (in_value > in_max)
+		in_value = in_max;
+
+	return out_min +
+	       (in_value - in_min) *
+	       (out_max - out_min) /
+	       (in_max - in_min);
+}

@@ -41,6 +41,8 @@ void StartControlTask(void const * argument)
              * 但 rate_yaw 的原始正方向相反，因此发送前取反，使角度和角速度一致。 */
             Board_Comm_Send_IMU(imu_sensor.info->base_info.yaw * DEG_TO_RAD,
                                 -imu_sensor.info->base_info.rate_yaw * DEG_TO_RAD);
+            Board_Comm_Send_Pitch_IMU(-imu_sensor.info->base_info.pitch * DEG_TO_RAD,
+                                      imu_sensor.info->base_info.rate_pitch * DEG_TO_RAD);
         }
 
         if (imu_valid) {
@@ -56,7 +58,7 @@ void StartControlTask(void const * argument)
          * 通过 0x023 发摩擦轮就绪状态给下层板，供其做摩擦轮安全锁。
          * 无条件每个周期发送，下层板才不会因超时退回延时门禁。
          */
-        Board_Comm_Send_State();
+        Board_Comm_Send_State(gimbal.pitch.feedback_pitch, imu_valid);
 
         /* 任务控制周期延时2ms，确保500Hz的稳定控制频率 */
         osDelay(2);

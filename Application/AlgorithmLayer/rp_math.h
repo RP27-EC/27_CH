@@ -59,5 +59,7 @@ float DeathZoom(float input, float center, float death);
 float Lowpass(float X_last, float X_new, float K);
 /* 半圈处理 */
 float motor_half_cycle(float angle, float max);
+/* 分段线性映射（带输入限幅） */
+float LinearMapClamp(float in_min, float in_max, float in_value, float out_min, float out_max);
 
 #endif
