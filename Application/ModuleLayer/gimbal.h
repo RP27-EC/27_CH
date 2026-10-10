@@ -128,6 +128,13 @@ typedef struct {
     pid_ctrl_t mec_angle_pid;//机械模式pid
     pid_ctrl_t mec_speed_pid;
 
+    /* MECH：底盘实测角速度补偿，Watch 可实时调系数；其余字段用于观察。 */
+    float chassis_fow_rads;     /* 无量纲系数：默认 1，0 关闭补偿 */
+    float chassis_speed_rads;   /* 有效的下层 IMU 角速度 (rad/s) */
+    float chassis_fow_speed;    /* 限幅后的底盘角速度补偿量 (rad/s) */
+    float yaw_target_speed;     /* 外环输出 + 补偿，最终限幅目标 (rad/s) */
+    bool chassis_fow_valid;     /* 本周期底盘补偿数据是否有效 */
+
     pid_ctrl_t gyro_angle_pid;//陀螺仪模式pid
     pid_ctrl_t gyro_speed_pid;
 

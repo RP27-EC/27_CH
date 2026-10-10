@@ -35,6 +35,14 @@ typedef enum {ALIGN_FRONT, ALIGN_BACK} AlignDir_e;
 typedef int CarMode_e;
 ''' + pid_header + re.sub(r'^#include[^\n]*', '', header, flags=re.M) + r'''
 struct {bool is_online;} board_rx_info;
+enum {DEV_OFFLINE, DEV_ONLINE};
+enum {IMU_NONE_ERR, IMU_DATA_ERR, IMU_DATA_CALI};
+typedef struct {struct {float ave_rate_yaw;} base_info;} HostImuInfo;
+static HostImuInfo bottom_imu_info;
+struct {
+    HostImuInfo *info;
+    struct {int dev_state, err_code, cali_end;} work_state;
+} imu_sensor;
 struct {struct {int16_t motor_out;} base_info;} kt_motor[1];
 static int16_t sent_current;
 static void KT_Yaw_SendIq(int16_t current){sent_current=current;}
@@ -45,6 +53,10 @@ static void setup(void){
     g=(Gimbal_t){0};Gimbal_Init(&g);
     g.mode=GIMBAL_MODE_GYRO;g.yaw.pid_mode=GIMBAL_PID_GYRO;
     board_rx_info.is_online=true;
+    bottom_imu_info=(HostImuInfo){0};imu_sensor.info=&bottom_imu_info;
+    imu_sensor.work_state.dev_state=DEV_ONLINE;
+    imu_sensor.work_state.err_code=IMU_NONE_ERR;
+    imu_sensor.work_state.cali_end=1;
     g.yaw.gyro_speed_pid.kd=20.0f;g.yaw.gyro_speed_pid.a=.2f;
     Gimbal_Yaw_Pid_Cal(&g);
 }

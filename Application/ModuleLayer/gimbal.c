@@ -25,6 +25,7 @@
 #include "rc_sensor.h"
 #include "kt_yaw_motor.h"
 #include "communicate.h"
+#include "imu_sensor.h"
 #include <math.h>
 
 /** @brief 圆周率常量，用于角度归一化计算 */
@@ -64,10 +65,15 @@ static void ClearYawPids(Gimbal_t *gimbal) {
     gimbal->yaw.speed_d_filtered_delta = 0.0f;
     gimbal->yaw.speed_d_ready = false;
     gimbal->yaw.speed_d_pid_mode = gimbal->yaw.pid_mode;
+    gimbal->yaw.chassis_speed_rads = 0.0f;
+    gimbal->yaw.chassis_fow_speed = 0.0f;
+    gimbal->yaw.yaw_target_speed = 0.0f;
+    gimbal->yaw.chassis_fow_valid = false;
 }
 
 
 void Gimbal_Init(Gimbal_t *gimbal) {
+    gimbal->yaw.chassis_fow_rads = 1.0f;
     /* 初始化为休眠模式，等待整车状态机切换到工作模式 */
     gimbal->mode = GIMBAL_MODE_SLEEP;
     gimbal->last_mode = GIMBAL_MODE_SLEEP;
@@ -479,6 +485,32 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
     single_pid_ctrl(angle_pid);
 
     float target_speed = angle_pid->out;
+
+    /* MECH 外环是相对底盘角度，内环是空间角速度：补上底盘实际转速。
+     * 下层 ave_rate_yaw 单位 deg/s，左转为正；上层 imu_speed 单位 rad/s。
+     * gain 保存在结构体中，清 PID 时保留，便于 Watch 实时调参。 */
+    gimbal->yaw.chassis_speed_rads = 0.0f;
+    gimbal->yaw.chassis_fow_speed = 0.0f;
+    gimbal->yaw.chassis_fow_valid = false;
+    if (gimbal->mode == GIMBAL_MODE_MECH &&
+        gimbal->yaw.pid_mode == GIMBAL_PID_MEC &&
+        imu_sensor.info != NULL &&
+        imu_sensor.work_state.dev_state == DEV_ONLINE &&
+        imu_sensor.work_state.err_code == IMU_NONE_ERR &&
+        imu_sensor.work_state.cali_end != 0U) {
+        float chassis_speed = imu_sensor.info->base_info.ave_rate_yaw * DEG_TO_RAD;
+        float fow_speed = chassis_speed * gimbal->yaw.chassis_fow_rads;
+        if (isfinite(chassis_speed) && isfinite(gimbal->yaw.chassis_fow_rads) &&
+            isfinite(fow_speed)) {
+            gimbal->yaw.chassis_speed_rads = chassis_speed;
+            gimbal->yaw.chassis_fow_speed =
+                constrain(fow_speed, -angle_pid->out_max, angle_pid->out_max);
+            gimbal->yaw.chassis_fow_valid = true;
+            target_speed = constrain(target_speed + gimbal->yaw.chassis_fow_speed,
+                                     -angle_pid->out_max, angle_pid->out_max);
+        }
+    }
+    gimbal->yaw.yaw_target_speed = target_speed;
 
     /* ====== 步骤3：内环速度PID计算 ====== */
     speed_pid->target = target_speed;
