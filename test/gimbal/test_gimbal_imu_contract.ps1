@@ -23,13 +23,13 @@ function Assert-NotMatch([string]$text, [string]$pattern, [string]$message) {
 }
 
 Assert-Match $gimbal '#include\s+"communicate\.h"' 'gimbal.c must consume board communication state'
-Assert-Match $gimbal 'gimbal->mode\s*==\s*GIMBAL_MODE_GYRO\s*&&\s*!board_rx_info\.is_online' 'gyro mode must reject stale IMU feedback'
+Assert-Match $gimbal '\(gimbal->mode\s*==\s*GIMBAL_MODE_GYRO\s*\|\|\s*gimbal->mode\s*==\s*GIMBAL_MODE_MECH\)\s*&&\s*!board_rx_info\.is_online' 'gyro and mechanical modes must reject stale IMU feedback'
 
 $offlineBranch = [regex]::Match(
     $gimbal,
-    'if\s*\(gimbal->mode\s*==\s*GIMBAL_MODE_GYRO\s*&&\s*!board_rx_info\.is_online\)\s*\{(?<body>[\s\S]*?)\n\s*\}')
+    'if\s*\(\(gimbal->mode\s*==\s*GIMBAL_MODE_GYRO\s*\|\|\s*gimbal->mode\s*==\s*GIMBAL_MODE_MECH\)\s*&&\s*!board_rx_info\.is_online\)\s*\{(?<body>[\s\S]*?)\n\s*\}')
 if (-not $offlineBranch.Success) {
-    throw 'gyro IMU offline branch is missing'
+    throw 'gyro/mechanical IMU offline branch is missing'
 }
 
 $body = $offlineBranch.Groups['body'].Value

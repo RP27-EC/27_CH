@@ -110,6 +110,7 @@ class YawDerivativeTest(unittest.TestCase):
 
     def test_zero_kd_preserves_proportional_and_integral_output(self):
         self.run_case(r'''
+    g.yaw.gyro_angle_pid.kp=25;g.yaw.gyro_speed_pid.kp=560;
     g.yaw.gyro_angle_pid.kd=g.yaw.gyro_speed_pid.kd=0;
     g.yaw.gyro_speed_pid.ki=.1f;g.yaw.target_imu_angle=.01f;
     g.yaw.imu_speed=.1f;Gimbal_Yaw_Pid_Cal(&g);
@@ -128,10 +129,11 @@ class YawDerivativeTest(unittest.TestCase):
     def test_mechanical_inner_loop_filters_feedback_too(self):
         self.run_case(r'''
     g.mode=GIMBAL_MODE_MECH;g.yaw.pid_mode=GIMBAL_PID_MEC;
+    g.yaw.mec_speed_pid.kd=20;
     Gimbal_Yaw_Pid_Cal(&g);
-    g.yaw.feedback_mec_speed=2;Gimbal_Yaw_Pid_Cal(&g);
+    g.yaw.imu_speed=2;Gimbal_Yaw_Pid_Cal(&g);
     near(g.yaw.mec_speed_pid.dout,-8);
-    g.yaw.mec_speed_pid.a=1;g.yaw.feedback_mec_speed=3;
+    g.yaw.mec_speed_pid.a=1;g.yaw.imu_speed=3;
     Gimbal_Yaw_Pid_Cal(&g);near(g.yaw.mec_speed_pid.dout,-20);
 ''')
 

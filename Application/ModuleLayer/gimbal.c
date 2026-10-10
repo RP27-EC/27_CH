@@ -515,8 +515,9 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
         return;
     }
 
-    /* ====== 陀螺仪模式下通信失联清零停止保护 ====== */
-    if (gimbal->mode == GIMBAL_MODE_GYRO && !board_rx_info.is_online) {
+    /* MECH/GYRO 速度内环都依赖上层 IMU；失联时清零，INIT 寻零仍用电机速度。 */
+    if ((gimbal->mode == GIMBAL_MODE_GYRO || gimbal->mode == GIMBAL_MODE_MECH) &&
+        !board_rx_info.is_online) {
         ClearYawPids(gimbal);
         gimbal->yaw.give_current = 0;
         kt_motor[0].base_info.motor_out = 0;
@@ -535,10 +536,11 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
         feedback_angle = gimbal->yaw.imu_angle;           /* IMU反馈角 */
         feedback_speed = gimbal->yaw.imu_speed;           /* IMU角速度反馈 */
     } else {
-        /* 机械/初始化模式：使用底盘相对坐标系的编码器数据进行闭环 */
+        /* 机械/初始化：角度外环仍用编码器；MECH 速度内环改用 IMU，INIT 保留电机速度。 */
         target_angle   = gimbal->yaw.target_mec_angle;    /* 机械目标角 */
         feedback_angle = gimbal->yaw.feedback_mec_angle;   /* 编码器反馈角 */
-        feedback_speed = gimbal->yaw.feedback_mec_speed;   /* 编码器速度反馈 */
+        feedback_speed = (gimbal->mode == GIMBAL_MODE_MECH) ?
+                         gimbal->yaw.imu_speed : gimbal->yaw.feedback_mec_speed;
     }
 
     /* ====== 步骤2：外环角度PID计算 ====== */
