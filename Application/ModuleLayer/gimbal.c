@@ -73,7 +73,7 @@ static void ClearYawPids(Gimbal_t *gimbal) {
 
 
 void Gimbal_Init(Gimbal_t *gimbal) {
-    gimbal->yaw.chassis_fow_rads = 1.0f;
+    gimbal->yaw.chassis_fow_rads = 0.65f;
     /* 初始化为休眠模式，等待整车状态机切换到工作模式 */
     gimbal->mode = GIMBAL_MODE_SLEEP;
     gimbal->last_mode = GIMBAL_MODE_SLEEP;
@@ -492,6 +492,7 @@ static void Gimbal_Yaw_Pid_Cal(Gimbal_t *gimbal) {
     gimbal->yaw.chassis_speed_rads = 0.0f;
     gimbal->yaw.chassis_fow_speed = 0.0f;
     gimbal->yaw.chassis_fow_valid = false;
+
     if (gimbal->mode == GIMBAL_MODE_MECH &&
         gimbal->yaw.pid_mode == GIMBAL_PID_MEC &&
         imu_sensor.info != NULL &&

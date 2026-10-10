@@ -29,7 +29,7 @@
 #define FOLLOW_K_QUADRATIC      (0.0f)  /* 二次项系数：增大大角度时的追赶力度 */
 
 #define CHASSIS_YAW_FF_LPF_ALPHA (0.20f) //摇杆前馈的低通滤波系数
-#define CHASSIS_YAW_FF_GAIN      (0.2f) //摇杆前馈增益
+#define CHASSIS_YAW_FF_GAIN      (0.8f) //摇杆前馈增益
 
 float Chassis_Calc_Follow_Wz_Norm(float delta_angle);
 
