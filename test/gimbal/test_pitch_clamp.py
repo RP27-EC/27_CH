@@ -13,8 +13,8 @@ def firmware_harness():
     source = (ROOT / 'Application/ModuleLayer/gimbal.c').read_text(encoding='utf-8-sig')
     end = header.index('} Gimbal_Pitch_t;') + len('} Gimbal_Pitch_t;')
     pitch_type = header[header.rfind('typedef struct {', 0, end):end]
-    constants = '\n'.join(line for line in source.splitlines()
-                          if re.match(r'#define\s+(DEG_TO_RAD|PITCH_LIMIT_)', line))
+    constants = '\n'.join(line for line in header.splitlines()
+                          if re.match(r'#define\s+PITCH_', line))
     start = source.index('static void Gimbal_Mech_Target_Update(void)\n{')
     update = source[start:source.index('\n}', start) + 2]
     return r'''
@@ -33,8 +33,8 @@ static Gimbal_t gimbal;
 #define g gimbal
 static void setup(void){
     gimbal=(Gimbal_t){0};
-    g.pitch.use_imu=true;
-    g.pitch.mec_min_rad=-0.314f;g.pitch.mec_max_rad=0.55f;
+    gimbal.pitch.use_imu=true;
+    gimbal.pitch.mec_min_rad=-0.314f;gimbal.pitch.mec_max_rad=0.55f;
     board_rx_info.pitch_encoder_tar=0;
 }
 static void near(float a,float b){CHECK(fabsf(a-b)<1e-6f);}
@@ -55,72 +55,49 @@ class PitchClampTest(unittest.TestCase):
             result = subprocess.run([str(exe)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_hold_freezes_value_when_boundary_moves(self):
+    def test_use_imu_clamps_to_static_imu_limits(self):
         self.run_case(r'''
-    board_rx_info.pitch_encoder_tar=.6f;Gimbal_Mech_Target_Update();
-    float held=g.pitch.target_pitch;
-    CHECK(g.pitch.target_held);CHECK(g.pitch.held_at_max);
-    /* 边界整体平移（机身倾斜）：贴界目标一个数位不动。 */
-    g.pitch.imu_pitch=.05f;
-    for(int i=0;i<100;i++){
-        board_rx_info.pitch_encoder_tar=.6f+.001f*i;
-        Gimbal_Mech_Target_Update();CHECK(g.pitch.target_pitch==held);
-    }
-''')
-
-    def test_release_on_inward_reclamps_into_range(self):
-        self.run_case(r'''
-    board_rx_info.pitch_encoder_tar=.6f;Gimbal_Mech_Target_Update();
-    float held=g.pitch.target_pitch;
-    /* 边界移进旧目标内部：仍保持不动。 */
-    g.pitch.imu_pitch=-.05f;
-    Gimbal_Mech_Target_Update();CHECK(g.pitch.target_pitch==held);
-    /* 目标向内移动即释放，并被截回当前可达区间。 */
-    board_rx_info.pitch_encoder_tar=.3f;
-    Gimbal_Mech_Target_Update();
-    CHECK(!g.pitch.target_held);near(g.pitch.target_pitch,.3f);
-    /* 释放后仍越界的：再截断一次并重新贴界给死。 */
-    board_rx_info.pitch_encoder_tar=.9f;g.pitch.imu_pitch=.05f;
-    Gimbal_Mech_Target_Update();
-    CHECK(g.pitch.target_held);
-    CHECK(g.pitch.target_pitch<=g.pitch.limit_offset+g.pitch.mec_max_rad-PITCH_LIMIT_MARGIN_RAD+1e-6f);
-''')
-
-    def test_hold_at_min_is_mirror_image(self):
-        self.run_case(r'''
-    board_rx_info.pitch_encoder_tar=-.6f;Gimbal_Mech_Target_Update();
-    float held=g.pitch.target_pitch;
-    CHECK(g.pitch.target_held);CHECK(!g.pitch.held_at_max);
-    g.pitch.imu_pitch=.05f;
-    for(int i=0;i<100;i++){
-        board_rx_info.pitch_encoder_tar=-.6f-.001f*i;
-        Gimbal_Mech_Target_Update();CHECK(g.pitch.target_pitch==held);
-    }
+    board_rx_info.pitch_encoder_tar=.9f;Gimbal_Mech_Target_Update();
+    near(g.pitch.target_pitch,PITCH_MAX_IMU_ANGLE);
+    board_rx_info.pitch_encoder_tar=-.9f;Gimbal_Mech_Target_Update();
+    near(g.pitch.target_pitch,PITCH_MIN_IMU_ANGLE);
     board_rx_info.pitch_encoder_tar=.3f;Gimbal_Mech_Target_Update();
-    CHECK(!g.pitch.target_held);near(g.pitch.target_pitch,.3f);
+    near(g.pitch.target_pitch,.3f);
 ''')
 
-    def test_offset_jitter_under_hysteresis_does_not_move_bound(self):
-        self.run_case(r'''
-    board_rx_info.pitch_encoder_tar=.6f;Gimbal_Mech_Target_Update();
-    float held=g.pitch.target_pitch;
-    /* 采样时差噪声小于锁存阈值：边界不动，截断结果也不动。 */
+    def test_limit_is_flat_despite_feedback_jitter(self):
+        for expr, bound in (('PITCH_MAX_IMU_ANGLE+.3f', 'PITCH_MAX_IMU_ANGLE'),
+                            ('PITCH_MIN_IMU_ANGLE-.3f', 'PITCH_MIN_IMU_ANGLE')):
+            with self.subTest(expr=expr):
+                self.run_case(
+                    f'float tar={expr};board_rx_info.pitch_encoder_tar=tar;\n'
+                    f'    Gimbal_Mech_Target_Update();\n'
+                    f'    float held=g.pitch.target_pitch;\n'
+                    f'    near(held,{bound});\n'  # 边界必须就是静态常数本身，不是别的平坦值
+                    '    float outward=(tar>held ? .3f : -.3f);\n'
+                    r'''    /* IMU/编码器反馈怎么抖，边界都是常数，截断结果一个数位不动。 */
     for(int i=0;i<1000;i++){
-        g.pitch.imu_pitch=(i%2 ? .002f : -.002f);
-        board_rx_info.pitch_encoder_tar=.6f+(i%2 ? .001f : -.001f);
+        float jitter=(i%2 ? .002f : -.002f);
+        g.pitch.imu_pitch=jitter;g.pitch.feedback_pitch=-jitter;
+        board_rx_info.pitch_encoder_tar=held+outward+(i%2 ? .01f : -.01f);
         Gimbal_Mech_Target_Update();CHECK(g.pitch.target_pitch==held);
     }
 ''')
 
-    def test_interior_target_is_not_dragged_by_feedback(self):
-        self.run_case(r'''
-    board_rx_info.pitch_encoder_tar=.2f;Gimbal_Mech_Target_Update();
-    near(g.pitch.target_pitch,.2f);CHECK(!g.pitch.target_held);
-    g.pitch.imu_pitch=.05f;Gimbal_Mech_Target_Update();
-    near(g.pitch.target_pitch,.2f);
-''')
+    def test_reverse_leaves_limit_on_first_call(self):
+        """反向输入当拍离开限位：不得有任何锁存/保持把目标钉在边界上。"""
+        for expr, bound, inward in (('PITCH_MAX_IMU_ANGLE+.3f', 'PITCH_MAX_IMU_ANGLE', '-.01f'),
+                                    ('PITCH_MIN_IMU_ANGLE-.3f', 'PITCH_MIN_IMU_ANGLE', '+.01f')):
+            with self.subTest(expr=expr):
+                self.run_case(
+                    f'float tar={expr};board_rx_info.pitch_encoder_tar=tar;\n'
+                    '    Gimbal_Mech_Target_Update();\n'
+                    f'    near(g.pitch.target_pitch,{bound});\n'
+                    f'    board_rx_info.pitch_encoder_tar={bound}{inward};\n'
+                    '    Gimbal_Mech_Target_Update();\n'
+                    f'    near(g.pitch.target_pitch,{bound}{inward});\n')
 
-    def test_mech_mode_uses_constant_limits(self):
+    def test_mech_mode_uses_encoder_range(self):
         self.run_case(r'''
     g.pitch.use_imu=false;
     board_rx_info.pitch_encoder_tar=.9f;Gimbal_Mech_Target_Update();
@@ -128,7 +105,16 @@ class PitchClampTest(unittest.TestCase):
     board_rx_info.pitch_encoder_tar=-.9f;Gimbal_Mech_Target_Update();
     near(g.pitch.target_pitch,g.pitch.mec_min_rad);
     board_rx_info.pitch_encoder_tar=.1f;Gimbal_Mech_Target_Update();
-    near(g.pitch.target_pitch,.1f);CHECK(!g.pitch.target_held);
+    near(g.pitch.target_pitch,.1f);
+''')
+
+    def test_interior_target_is_not_dragged_by_feedback(self):
+        self.run_case(r'''
+    board_rx_info.pitch_encoder_tar=.4f;Gimbal_Mech_Target_Update();
+    near(g.pitch.target_pitch,.4f);
+    g.pitch.imu_pitch=.3f;g.pitch.feedback_pitch=-.2f;
+    board_rx_info.pitch_encoder_tar=.4f;Gimbal_Mech_Target_Update();
+    near(g.pitch.target_pitch,.4f);
 ''')
 
 

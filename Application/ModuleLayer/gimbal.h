@@ -11,6 +11,11 @@
 #include <stdbool.h>
 #include "pid.h"
 
+/* GYRO 域 Pitch 目标静态限位 (rad)：IMU 世界域，标定后定死不再调。
+ * 下板 gimbal.h 同名同值，改一处必须改两处。 */
+#define PITCH_MIN_IMU_ANGLE  (0.04f)
+#define PITCH_MAX_IMU_ANGLE  (0.70f)
+
 /* Pitch 执行与控制数据结构体 */
 typedef struct {
     float mec_min_rad;
@@ -26,25 +31,10 @@ typedef struct {
     
     bool use_imu;            /* 角度外环与 PID 参数组：0=机械，1=IMU */
 
-    /* IMU 域限位边界参考：IMU 角 - 机械角的锁存值。实时坐标差里混着
-       两个传感器的更新时差，云台一抖边界就跟着抖，必须锁存。 */
-    float limit_offset;      /* 锁存的 (imu_pitch - feedback_pitch) (rad) */
-    bool limit_offset_valid; /* 切模式/安全停机后重新锁存 */
-    float held_target;       /* 贴界锁存的目标值：外打期间不变 (rad) */
-    bool target_held;        /* IMU 域目标处于边界保持状态 */
-    bool held_at_max;        /* true=锁在上限 / false=锁在下限 */
 
-
-    /* 分段重力前馈补偿参数（Keil Watch 可在线调整，全部为角度制） */
-    float mech_gravity_max_torque; /* 机械模式满补偿力矩 (N·m) */
-    float mech_gravity_zero_deg;   /* 机械模式衰减起点 (deg) */
-    float mech_gravity_edge_deg;   /* 机械模式衰减宽度 (deg) */
-
-
-    float imu_gravity_max_torque;  /* IMU 模式补偿幅值 (N·m) - cos 公式用 */
-    // float imu_gravity_zero_deg;    /* IMU 模式衰减起点 (deg) - 已弃用：IMU 改回余弦模型 */
-    // float imu_gravity_edge_deg;    /* IMU 模式衰减宽度 (deg) - 已弃用：IMU 改回余弦模型 */
-    float imu_gravity_phase_deg;   /* IMU 模式补偿相位 (deg)：cos 公式相位偏移 */
+    /* 重力/拉簧前馈（MECH/GYRO 两模式同一套 cos，Keil Watch 可在线调整） */
+    float gravity_max_torque; /* 前馈幅值 (N·m)，正负号决定补偿方向 */
+    float gravity_phase_deg;  /* 前馈相位 (deg)，修正机构零位与质心偏差 */
 
     float max_torque_limit;   /* 最终输出力矩限幅 (N·m) */
     float max_speed_limit;    /* 外环目标角速度限幅 (rad/s) */
