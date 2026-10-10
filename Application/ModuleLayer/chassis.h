@@ -41,7 +41,7 @@ void Chassis_Init(void);
   * @param  lateral     : 左右方向通道值，正值向左，范围[-660, 660]（云台坐标系）
   * @param  rotate      : 旋转方向通道值，正值逆时针，范围[-660, 660]
   * @param  delta_theta : 云台相对车头的夹角 (rad，由 KT 编码器解算，已归一到[-π,π])
-  * @param  align_dir   : 双向就近对齐方向（FRONT=追0° / BACK=追180°），GYRO跟随误差用
+  * @param  align_dir   : 保留接口参数；GYRO 跟随不使用机械模式的锁轴方向
   * @param  car_mode    : 整车当前工作模式
   * @param  failsafe    : 失联保护标志，true时立即停止
   */

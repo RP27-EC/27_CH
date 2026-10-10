@@ -473,7 +473,8 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
     } else {
         *forward = (int16_t)((float)(rc_sensor.info->W.cnt - rc_sensor.info->S.cnt)
                              * CHASSIS_RC_MAX_VALUE / (float)KEY_W_CNT_MAX);
-        *lateral = (int16_t)((float)(rc_sensor.info->A.cnt - rc_sensor.info->D.cnt)
+        /* 与实车横移方向对齐：底盘对 lateral 取反，A 给负值后向左，D 向右。 */
+        *lateral = (int16_t)((float)(rc_sensor.info->D.cnt - rc_sensor.info->A.cnt)
                              * CHASSIS_RC_MAX_VALUE / (float)KEY_A_CNT_MAX);
 
         /* 机械模式才映射旋转：E - Q 使 E 为正、Q 为负，

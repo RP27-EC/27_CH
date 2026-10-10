@@ -9,7 +9,7 @@
   *          - 测试安全模式后是否能恢复正常控制
   *          - 测试陀螺仪模式下平移是否跟随云台朝向
   *          - 测试陀螺仪模式下旋转是否朝向正角度方向
-  *          - 测试 ALIGN_BACK 时跟随误差相对 180°（车尾对准、不掉头半圈）
+  *          - 测试 GYRO 不受机械模式 ALIGN_BACK 锁轴影响
   * @note   该测试使用桩函数（stub）模拟硬件操作，可在PC上独立运行
   ******************************************************************************
   */
@@ -354,25 +354,25 @@ static void test_follow_deadzone_gain_and_limit(void)
 }
 
 /**
-  * @brief  测试8：ALIGN_BACK 时跟随误差相对 180°
+  * @brief  测试8：GYRO 忽略机械模式 ALIGN_BACK，始终让车头跟随
   * @details 头朝车尾（delta=π）时：
   *          - FRONT：追 Δθ→π，底盘掉头半圈（wz 饱和）
-  *          - BACK：追 Δθ→π−π=0，底盘不转，W 投影为倒车（vx'=-1）
+  *          - BACK：同样追真实夹角，不使用 180° 就近对齐
   * @retval None
   */
-static void test_align_back_follows_rear_without_chassis_turn(void)
+static void test_gyro_ignores_mechanical_rear_alignment(void)
 {
     const float pi = 3.14159265359f;
     const float rpm = CHASSIS_MAX_MOTOR_RPM;
     reset_fixture();
 
-    /* BACK：头已在车尾，跟随误差 0 → 不掉头，纯倒车平移 */
+    /* BACK：机械模式的车尾锁轴状态不能改变 GYRO 跟随。 */
     Chassis_Update(660, 0, 0, pi, ALIGN_BACK, CAR_MODE_GYRO, false);
-    /* kinematics: vx=-1,vy=0,wz=0 → wheel=-1 → dir 后 FL/BL 为负、FR/BR 为正 */
+    /* vx=-1, wz=1，经轮速限幅后 FL/BL 为负满速，FR/BR 为零。 */
     expect_near_rpm(speed_pid[0].target, -rpm, "back FL reverse");
-    expect_near_rpm(speed_pid[1].target,  rpm, "back FR reverse");
+    expect_near(speed_pid[1].target, 0.0f, "back FR follows front");
     expect_near_rpm(speed_pid[2].target, -rpm, "back BL reverse");
-    expect_near_rpm(speed_pid[3].target,  rpm, "back BR reverse");
+    expect_near(speed_pid[3].target, 0.0f, "back BR follows front");
 
     /* FRONT：同一夹角仍要追 180° → wz 饱和，平移投影仍为 vx'=-1 */
     reset_fixture();
@@ -398,7 +398,7 @@ int main(void)
     test_gyro_translation_follows_gimbal_heading(); /* 测试5 */
     test_gyro_follow_rotates_toward_positive_angle(); /* 测试6 */
     test_follow_deadzone_gain_and_limit();          /* 测试7 */
-    test_align_back_follows_rear_without_chassis_turn(); /* 测试8 */
+    test_gyro_ignores_mechanical_rear_alignment(); /* 测试8 */
     puts("8 chassis control tests passed");
     return EXIT_SUCCESS;
 }

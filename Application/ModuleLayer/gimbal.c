@@ -657,7 +657,7 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
     Gimbal_Turn_Update(gimbal, car_mode);
 
     /*==========================================================================
-     * 第2.5步：双向就近对齐迟滞（88°/91°，上机调参）—— MECH 锁轴 + GYRO 底盘跟误差共用
+     * 第2.5步：仅 MECH 使用双向就近对齐迟滞（88°/91°）；GYRO 不切换锁轴方向
      * 保险：小陀螺（SPIN）与换头（turn_active）一票否决。
      * 自旋/换头时相对夹角快速扫过，若允许更新 align_dir，
      * 底盘解算会在正/反向之间高频震荡。
@@ -671,7 +671,7 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
         gimbal->yaw.align_veto_cnt--;  /* 退出后的冷却倒计时 */
     }
 
-    if ((car_mode == CAR_MODE_MECH || car_mode == CAR_MODE_GYRO) &&
+    if ((car_mode == CAR_MODE_MECH) &&
         (gimbal->yaw.align_veto_cnt == 0U)) {
         const float abs_deg =
             fabsf(gimbal->yaw.feedback_mec_angle) * (180.0f / PI);

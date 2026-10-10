@@ -58,7 +58,7 @@
 #define KEY_TRIM_STEP_SMALL         (0.05f * DEG_TO_RAD)
 #define KEY_TRIM_STEP_LARGE         (0.2f  * DEG_TO_RAD)
 
-/* ---------------- 双向就近对齐（88°/91° 迟滞，上机调参） ----------------
+/* ---------------- 仅机械模式双向就近对齐（88°/91° 迟滞，上机调参） ----------------
    夹角 < 88°：锁车头轴（目标 0°）
    夹角 > 91°：锁车尾轴（目标 180°）
    88°~91°：保持上一拍方向，防 90° 临界横跳。
@@ -114,7 +114,7 @@ typedef struct {
     float imu_speed;            /* 上层 C 板发来的绝对角速度 yaw_v (rad/s) */
     float gyro_sensitivity;      /* GYRO 模式每周期、每单位摇杆输入的目标角增量 (rad) */
 
-    /* 双向就近对齐：MECH 锁轴目标 + GYRO 底盘跟随误差共用同一结论 */
+    /* 仅 MECH 使用双向就近对齐；GYRO 保持空间目标，不使用车头/车尾锁轴。 */
     AlignDir_e align_dir;       /* FRONT=锁0° / BACK=锁180°，88°/91° 迟滞维护 */
     uint16_t align_veto_cnt;    /* >0 时禁止更新 align_dir（小陀螺/换头及退出冷却） */
 

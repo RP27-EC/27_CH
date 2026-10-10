@@ -16,9 +16,6 @@
 
 #include <math.h>
 
-/** @brief 圆周率，与 gimbal.c 保持一致（双向对齐 BACK=180° 用） */
-#define CHASSIS_PI 3.14159265358979323846f
-
 static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_FL_DIRECTION,  /* 前左轮方向系数 */
     CHASSIS_FR_DIRECTION,  /* 前右轮方向系数 */
@@ -150,8 +147,7 @@ void Chassis_Init(void)
   *             操作手输入在云台坐标系（视线方向），按 delta_theta 投影到底盘系。
   *             头在车尾（Δθ≈180°）时 cos(180°)=-1，W 自动物理倒车，
   *             操作手视角仍为「向准星前方走」，不需要手写 W/S 反转。
-  *          4. GYRO 跟随误差按双向就近对齐：ALIGN_FRONT 追 0°，ALIGN_BACK 追 180°
-  *             （align_dir 由云台侧 88°/91° 迟滞维护；SPIN 期间该状态被一票否决冻结）
+  *          4. GYRO 始终用真实云台夹角跟随车头，不采用机械模式的车尾就近对齐
   *          5. 调用麦轮运动学解算，计算四个轮子的目标转速
   *          6. 应用轮子方向系数，设置电机速度目标
   *          7. 通过CAN总线批量发送控制指令
@@ -160,7 +156,7 @@ void Chassis_Init(void)
   * @param  lateral    : 左右方向遥控器通道值，正值向左，范围[-660, 660]（云台坐标系）
   * @param  rotate     : 旋转方向遥控器通道值，正值逆时针，范围[-660, 660]
   * @param  delta_theta: 云台相对车头的夹角（弧度），用于坐标系旋转
-  * @param  align_dir  : 双向就近对齐方向，GYRO 跟随误差用（FRONT=0° / BACK=180°）
+  * @param  align_dir  : 保留接口参数；机械锁轴由云台处理，GYRO 跟随不使用此值
   * @param  car_mode   : 整车当前模式，决定跟随/自旋/手动旋转
   * @param  failsafe   : 失联保护标志，true时立即停止底盘
   * @retval None
@@ -170,6 +166,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                     CarMode_e car_mode, bool failsafe)
 {
     float wheel_rpm[CHASSIS_WHEEL_COUNT];  /* 四个轮子的目标转速(RPM) */
+    (void)align_dir;  /* GYRO 不再使用机械模式的就近锁轴方向。 */
 
     /* 将遥控器通道原始值归一化到[-1, 1] */
     float vx = Chassis_Clamp_Channel_Deadzone(forward, CHASSIS_FORWARD_DEADZONE);     /* 前后速度（带中位死区） */
@@ -234,17 +231,8 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                     //得到摇杆前馈的值
             }
 
-            /* 双向就近对齐：误差相对「目标轴」而不是永远相对车头。
-               FRONT：追 Δθ→0；BACK：追 Δθ→180°（车尾对准头），
-               底盘少掉头半圈，平移投影仍用真实 delta_theta，W 恒为视线前方。 */
-            float follow_err = delta_theta;
-            if (align_dir == ALIGN_BACK) {
-                follow_err = delta_theta - CHASSIS_PI;
-                while (follow_err >  CHASSIS_PI) follow_err -= 2.0f * CHASSIS_PI;
-                while (follow_err < -CHASSIS_PI) follow_err += 2.0f * CHASSIS_PI;
-            }
-
-            wz = Chassis_Calc_Follow_Wz_Norm(follow_err) + //偏移角度经过线性非线性误差叠加
+            /* GYRO 始终让车头跟随云台，不切换到 180° 车尾对齐。 */
+            wz = Chassis_Calc_Follow_Wz_Norm(delta_theta) + //偏移角度经过线性非线性误差叠加
                  CHASSIS_YAW_FF_GAIN * chassis_yaw_ff_filtered;//摇杆前馈乘以比例系数
             wz = Chassis_Clamp_Normalized(wz);
         } else {

@@ -26,8 +26,10 @@ Assert-Match $header 'void\s+Chassis_Stop\s*\(\s*void\s*\)' 'Chassis_Stop interf
 # 双向就近对齐：MECH/GYRO/SPIN 统一做云台坐标投影（W=视线前方，头在车尾时自动倒车）
 Assert-Match $header 'AlignDir_e\s+align_dir' 'Chassis_Update must take AlignDir_e align_dir'
 Assert-Match $source 'CAR_MODE_MECH' 'MECH must participate in gimbal-frame coordinate rotation'
-Assert-Match $source 'align_dir\s*==\s*ALIGN_BACK' 'GYRO follow error must switch on ALIGN_BACK (chase 180°)'
-Assert-Match $source 'delta_theta\s*-\s*CHASSIS_PI' 'BACK follow error must be relative to 180°'
+Assert-Match $source 'Chassis_Calc_Follow_Wz_Norm\(delta_theta\)' 'GYRO must follow the actual angle relative to the front'
+if ($source -match 'align_dir\s*==\s*ALIGN_BACK|delta_theta\s*-\s*CHASSIS_PI') {
+    throw 'GYRO must not adopt mechanical rear alignment'
+}
 # 小陀螺：只吃坐标投影 + 恒定自旋，不参与双向跟随误差
 Assert-Match $source 'CAR_MODE_SPIN' 'SPIN branch must remain in chassis update'
 
