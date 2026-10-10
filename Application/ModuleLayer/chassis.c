@@ -261,5 +261,5 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     }
 
     /* 一次CAN帧发送4个电机 */
- //   Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);
+    Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);
 }

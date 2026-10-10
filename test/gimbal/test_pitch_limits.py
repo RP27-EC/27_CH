@@ -65,76 +65,51 @@ class PitchLimitTest(unittest.TestCase):
             result = subprocess.run([str(exe)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_full_stick_holds_both_limits_despite_feedback_jitter(self):
-        for direction in (-1, 1):
-            with self.subTest(direction=direction):
-                self.run_case(f'float input={direction}*660.0f;\n' + r'''
-    saturate(input);float held=g.pitch.target_imu_angle;
-    for(int i=0;i<1000;i++){
-        float jitter=(i%2 ? .001f : -.001f);
-        /* Opposite sensor errors also model non-simultaneous CAN samples. */
-        g.pitch.imu_angle=held+jitter;
-        board_rx_info.pitch_mech_angle=held-.15f-jitter;
-        step(input);CHECK(g.pitch.target_imu_angle==held);
-    }
-    step(-input);CHECK((g.pitch.target_imu_angle-held)*input<0);
-    float retreated=g.pitch.target_imu_angle;
-    step(0);CHECK(g.pitch.target_imu_angle==retreated);
-''')
-
-    def test_small_reverse_then_outward_cannot_ratchet_past_limit(self):
-        self.run_case(r'''
-    saturate(660);float held=g.pitch.target_imu_angle;
-    for(int i=0;i<1000;i++){
-        step(-40);CHECK(g.pitch.target_imu_angle<held);
-        g.pitch.imu_angle=.15f+(i%2 ? .001f : -.001f);
-        step(660);CHECK(g.pitch.target_imu_angle==held);
-    }
-''')
-
-    def test_held_target_survives_body_tilt_until_input_reverses(self):
-        for direction in (-1, 1):
-            with self.subTest(direction=direction):
-                self.run_case(f'float input={direction}*660.0f;\n' + r'''
-    saturate(input);float held=g.pitch.target_imu_angle;
-    /* 车身倾斜超过锁存阈值：边界整体平移，贴界目标仍一个数位不动。 */
-    g.pitch.imu_angle+=0.04f*(input>0 ? -1 : 1);
-    for(int i=0;i<100;i++){step(input);CHECK(g.pitch.target_imu_angle==held);}
-    /* 反向输入立即释放，目标离开旧边界。 */
-    step(-input);CHECK(g.pitch.target_imu_angle!=held);
-    /* 再回推时贴上平移后的新边界，且新边界处再次给死。 */
-    for(int i=0;i<50;i++)step(input);
-    float reheld=g.pitch.target_imu_angle;
-    for(int i=0;i<100;i++){step(input);CHECK(g.pitch.target_imu_angle==reheld);}
-''')
-
-    def test_bound_has_margin_for_untracked_small_frame_changes(self):
+    def test_full_stick_is_flat_at_limits_despite_feedback_jitter(self):
         for direction in (-1, 1):
             with self.subTest(direction=direction):
                 self.run_case(f'float input={direction}*660.0f;\n' + r'''
     saturate(input);
-    float new_offset=.15f+(input>0 ? -.003f : .003f);
-    float implied_mech=g.pitch.target_imu_angle-new_offset;
-    CHECK(implied_mech>=g.pitch.min_limit && implied_mech<=g.pitch.max_limit);
+    float held=g.pitch.target_imu_angle;
+    near(held, input>0 ? PITCH_MAX_IMU_ANGLE : PITCH_MIN_IMU_ANGLE);
+    /* 采样时差噪声/反馈抖动：边界是常数，目标一个数位都不动。 */
+    for(int i=0;i<1000;i++){
+        float jitter=(i%2 ? .001f : -.001f);
+        g.pitch.imu_angle=held+jitter;
+        board_rx_info.pitch_mech_angle=held-.15f-jitter;
+        step(input);CHECK(g.pitch.target_imu_angle==held);
+    }
+    /* 车身倾斜也一样：静态限位不跟姿态，目标仍是水平直线。 */
+    g.pitch.imu_angle+=0.04f*(input>0 ? -1 : 1);
+    for(int i=0;i<100;i++){step(input);CHECK(g.pitch.target_imu_angle==held);}
+''')
+
+    def test_reverse_leaves_limit_on_first_tick(self):
+        for direction in (-1, 1):
+            with self.subTest(direction=direction):
+                self.run_case(f'float input={direction}*660.0f;\n' + r'''
+    saturate(input);float held=g.pitch.target_imu_angle;
+    step(-input);
+    near(g.pitch.target_imu_angle, held-input*RC_PITCH_MECH_SENSITIVITY);
+    float retreated=g.pitch.target_imu_angle;
+    step(0);CHECK(g.pitch.target_imu_angle==retreated);
 ''')
 
     def test_interior_target_stays_in_world_frame(self):
         self.run_case(r'''
-    g.pitch.target_imu_angle=.2f;g.pitch.imu_angle=.2f;
-    step(0);near(g.pitch.target_imu_angle,.2f);
+    g.pitch.target_imu_angle=.4f;g.pitch.imu_angle=.4f;
+    step(0);near(g.pitch.target_imu_angle,.4f);
     /* 行程内目标不跟随反馈平移，只在越界时截断。 */
-    g.pitch.imu_angle+=.05f;step(0);near(g.pitch.target_imu_angle,.2f);
+    g.pitch.imu_angle+=.05f;step(0);near(g.pitch.target_imu_angle,.4f);
+    g.pitch.imu_angle-=.3f;step(0);near(g.pitch.target_imu_angle,.4f);
 ''')
 
-    def test_release_reclamps_frozen_target_into_reachable_range(self):
+    def test_mech_mode_clamps_to_encoder_range(self):
         self.run_case(r'''
-    saturate(660);float held=g.pitch.target_imu_angle;
-    /* 车身倾到旧目标不可达：外打期间目标保持不动。 */
-    g.pitch.imu_angle-=.04f;
-    for(int i=0;i<10;i++){step(660);CHECK(g.pitch.target_imu_angle==held);}
-    /* 反向输入释放的当拍，目标被截回机械行程对应的世界系区间。 */
-    step(-660);
-    CHECK(g.pitch.target_imu_angle<=g.pitch.imu_limit_offset+g.pitch.max_limit-PITCH_LIMIT_MARGIN_RAD+1e-6f);
+    g.mode=GIMBAL_MODE_MECH;board_rx_info.pitch_mech_angle=.2f;step(0);
+    near(g.pitch.target_mec_angle,.2f);
+    saturate(660);near(g.pitch.target_mec_angle,g.pitch.max_limit);
+    saturate(-660);near(g.pitch.target_mec_angle,g.pitch.min_limit);
 ''')
 
     def test_feedback_loss_rebases_before_accepting_input(self):
@@ -142,34 +117,33 @@ class PitchLimitTest(unittest.TestCase):
     saturate(660);board_rx_info.is_pitch_mech_online=false;
     g.pitch.imu_angle=.3f;step(660);
     CHECK(g.pitch.target_rebase_pending);near(g.pitch.target_imu_angle,.3f);
-    board_rx_info.is_pitch_mech_online=true;g.pitch.imu_angle=.7f;
-    step(0);CHECK(!g.pitch.target_rebase_pending);near(g.pitch.target_imu_angle,.7f);
-    saturate(660);CHECK(g.pitch.target_imu_angle>1.2f);
+    board_rx_info.is_pitch_mech_online=true;g.pitch.imu_angle=.5f;
+    step(0);CHECK(!g.pitch.target_rebase_pending);near(g.pitch.target_imu_angle,.5f);
+    saturate(660);near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE);
 ''')
 
-    def test_sleep_and_mode_changes_drop_old_limit_reference(self):
+    def test_sleep_and_mode_changes_follow_current_feedback(self):
         self.run_case(r'''
     saturate(660);g.mode=GIMBAL_MODE_SLEEP;step(660);
     near(g.pitch.target_imu_angle,g.pitch.imu_angle);
-    g.mode=GIMBAL_MODE_GYRO;g.pitch.imu_angle=.7f;
-    g.pitch.target_imu_angle=.7f;saturate(660);CHECK(g.pitch.target_imu_angle>1.2f);
+    g.mode=GIMBAL_MODE_GYRO;g.pitch.imu_angle=.5f;
+    g.pitch.target_imu_angle=.5f;saturate(660);
+    near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE);
     g.mode=GIMBAL_MODE_MECH;board_rx_info.pitch_mech_angle=.2f;step(0);
     near(g.pitch.target_mec_angle,.2f);
-    saturate(660);near(g.pitch.target_mec_angle,g.pitch.max_limit);
     saturate(-660);near(g.pitch.target_mec_angle,g.pitch.min_limit);
     g.mode=GIMBAL_MODE_GYRO;board_rx_info.pitch_mech_angle=0;
     g.pitch.imu_angle=0;g.pitch.target_imu_angle=0;saturate(660);
-    CHECK(g.pitch.target_imu_angle<.56f);
+    near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE);
 ''')
 
-    def test_keyboard_uses_same_boundary_without_replaying_blocked_input(self):
+    def test_keyboard_uses_same_limits(self):
         self.run_case(r'''
     hero_car.input_src=INPUT_SRC_KEY;
-    key_delta=2;step(0);float held=g.pitch.target_imu_angle;
-    g.pitch.imu_angle+=.001f;
-    key_delta=.1f;step(0);CHECK(g.pitch.target_imu_angle==held);
-    key_delta=-.01f;step(0);near(g.pitch.target_imu_angle,held-.01f);
-    step(0);near(g.pitch.target_imu_angle,held-.01f);CHECK(key_calls==4);
+    key_delta=2;step(0);near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE);
+    for(int i=0;i<100;i++){key_delta=.1f;step(0);CHECK(g.pitch.target_imu_angle==PITCH_MAX_IMU_ANGLE);}
+    key_delta=-.01f;step(0);near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE-.01f);
+    step(0);near(g.pitch.target_imu_angle,PITCH_MAX_IMU_ANGLE-.01f);CHECK(key_calls==103);
 ''')
 
 

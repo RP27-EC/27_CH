@@ -269,8 +269,8 @@ static InputSrc_e Car_Input_Src_Detect(uint8_t s1, uint8_t s2) {
   * @brief  键鼠 R 换头：状态机一拍一变，这里只认「刚进入 release_to_press」
   * @details 键盘状态在 ~14ms 的 DBUS 帧里保持，而本环是 2ms——
   *          直接判 status==release_to_press 会连置多拍脉冲。
-  *          换头结束后若 status 仍高，就会再 +180° / 再翻一次锁轴，
-  *          表现为「转一圈回到原位、没有换头」。这里用相邻拍边沿掐掉。
+  *          换头结束后若 status 仍高，就会再翻一次锁轴，
+  *          表现为「翻过去又翻回来、没有换头」。这里用相邻拍边沿掐掉。
   * @retval true : 本拍 R 刚按下（单帧）
   */
 static bool Car_R_Turn_Edge(void) {
@@ -567,9 +567,8 @@ void Car_Control_Update(Car_t *car) {
     bool tb_dn = RC_Thumbwheel_Dn_Edge();  /* 拨轮向下边沿 */
 
     /* 换头脉冲：每拍先清，只在满足条件时置一拍（与单发同一套习惯）。
-       MECH / GYRO / SPIN 都可换头：
-       - MECH：粘性锁轴 FRONT↔BACK 翻转
-       - GYRO/SPIN：世界系目标角 +180°（有滑环，不设方向限制） */
+       仅 MECH 可换头（粘性锁轴 FRONT↔BACK 翻转）；
+       GYRO/SPIN 的世界系 +180° 掉头已删除，触发条件直接不认。 */
     car->flags.is_turn_cmd = false;
 
     /*模式切换：按输入源分流，两套并列互不串扰 */
@@ -578,11 +577,10 @@ void Car_Control_Update(Car_t *car) {
         Car_Key_Action_Cmd_Update(car);
 
         /* 键鼠换头：R 刚按下（真边沿，见 Car_R_Turn_Edge）。
-           F/G/V 已占用模式，R 专用于换头。 */
-        if (Car_R_Turn_Edge() &&
-            (car->mode == CAR_MODE_MECH ||
-             car->mode == CAR_MODE_GYRO ||
-             car->mode == CAR_MODE_SPIN)) {
+           F/G/V 已占用模式，R 专用于换头。只在 MECH 生效。
+           Car_R_Turn_Edge() 必须无条件求值（短路放前面），
+           否则 GYRO 下 prev 陈旧，切回 MECH 会误出边沿。 */
+        if (Car_R_Turn_Edge() && car->mode == CAR_MODE_MECH) {
             car->flags.is_turn_cmd = true;
         }
     } else {
@@ -591,11 +589,9 @@ void Car_Control_Update(Car_t *car) {
 
         /* 遥控换头：S1上 + S2上 + 拨轮上（tb_up 本身是单拍边沿）。
            与模式矩阵不冲突：矩阵用 s2=中/下，摩擦轮用 s1=中。
-           MECH/GYRO/SPIN 均可触发。 */
+           只在 MECH 生效。 */
         if (s1 == RC_SW_UP && s2 == RC_SW_UP && tb_up &&
-            (car->mode == CAR_MODE_MECH ||
-             car->mode == CAR_MODE_GYRO ||
-             car->mode == CAR_MODE_SPIN)) {
+            car->mode == CAR_MODE_MECH) {
             car->flags.is_turn_cmd = true;
         }
     }

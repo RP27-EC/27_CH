@@ -47,7 +47,7 @@ typedef struct {
     bool is_shoot_system_on;    /* 摩擦轮开启标志 */
     bool is_single_shoot_cmd;   /* 单发打弹脉冲指令 */
     bool is_continuous_shoot;   /* 连发标志（拨弹持续转动） */
-    bool is_turn_cmd;           /* 换头/掉头脉冲：目标角+180°，仅 GYRO/SPIN 置位 */
+    bool is_turn_cmd;           /* 换头/掉头脉冲：MECH 粘性锁轴翻转，仅 MECH 置位 */
 } CarFlags_t;
 
 /* 整车总控对象 */

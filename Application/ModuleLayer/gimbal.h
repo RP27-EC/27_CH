@@ -31,10 +31,10 @@
 #define PITCH_MIN_MEC_ANGLE         (PITCH_MIN_DEG * DEG_TO_RAD)
 #define PITCH_MAX_MEC_ANGLE         (PITCH_MAX_RAD)
 
-/* IMU/机械坐标差的锁存更新阈值，抑制限位处噪声及两帧采样时差。
- * 两端内缩同等余量，覆盖锁存期间未更新的坐标差；不代替硬限位保护。 */
-#define PITCH_LIMIT_FRAME_HYST_RAD  (0.5f * DEG_TO_RAD)
-#define PITCH_LIMIT_MARGIN_RAD      (PITCH_LIMIT_FRAME_HYST_RAD)
+/* GYRO 域 Pitch 目标静态限位 (rad)：IMU 世界域，标定后定死不再调。
+ * 上板 gimbal.h 同名同值，改一处必须改两处。 */
+#define PITCH_MIN_IMU_ANGLE         (0.04f)
+#define PITCH_MAX_IMU_ANGLE         (0.70f)
 
 /* 摇杆控制灵敏度 (2ms 周期下的积分步长) */
 #define RC_YAW_MECH_SENSITIVITY     (0.0001f)    /* 机械模式 Yaw 灵敏度 */
@@ -68,13 +68,12 @@
 #define YAW_ALIGN_BACK_MIN_DEG      (91.0f)
 #define YAW_ALIGN_POST_SPIN_TICKS   (250U)  /* 退出小陀螺后的否决冷却：250×2ms=0.5s */
 
-/* ---------------- 换头/掉头 ----------------
-   触发：遥控 S1上+S2上+拨轮上，或键鼠 R（MECH / GYRO / SPIN）。
-   - GYRO/SPIN：世界系目标角 +180°，云台快转，底盘跟头；
-     有滑环，不设方向/圈数限制。
-   - MECH：粘性锁轴 FRONT↔BACK（0° ↔ 180°）。头锁死时 |delta| 很小，
-     88°/91° 迟滞翻不到车尾，机械模式必须手动锁轴。
-   进行中屏蔽 ch0/鼠标瞄准；误差≤5° 或超时 1.5s 结束。
+/* ---------------- 换头/掉头（仅 MECH） ----------------
+   触发：遥控 S1上+S2上+拨轮上，或键鼠 R（只在机械模式）。
+   MECH：粘性锁轴 FRONT↔BACK（0° ↔ 180°）。头锁死时 |delta| 很小，
+   88°/91° 迟滞翻不到车尾，机械模式必须手动锁轴。
+   GYRO/SPIN 的世界系目标角 +180° 掉头已删除，这两个模式不响应触发。
+   误差≤5° 或超时 1.5s 结束。
    换头期间冻结对齐迟滞；结束后按真实轴向立刻写 align_dir，
    底盘 follow_err≈0，W = 倒车，不再空转半圈「假换头」。 */
 #define YAW_TURN_ARRIVE_ERR_DEG     (5.0f)
@@ -118,8 +117,8 @@ typedef struct {
     AlignDir_e align_dir;       /* FRONT=锁0° / BACK=锁180°，88°/91° 迟滞维护 */
     uint16_t align_veto_cnt;    /* >0 时禁止更新 align_dir（小陀螺/换头及退出冷却） */
 
-    /* 换头/掉头：GYRO/SPIN 世界系 +180°；MECH 粘性锁轴 FRONT↔BACK 翻转 */
-    bool turn_active;           /* 换头进行中：屏蔽 ch0/鼠标瞄准 + 冻结对齐迟滞 */
+    /* 换头/掉头（仅 MECH）：粘性锁轴 FRONT↔BACK 翻转 */
+    bool turn_active;           /* 换头进行中：冻结对齐迟滞 */
     bool turn_finish;           /* 最近一次换头已结束（到角或超时） */
     uint16_t turn_time;         /* 换头已进行拍数 */
 
@@ -151,11 +150,6 @@ typedef struct {
     float imu_angle;            /* 上层 C 板 0x022 回传 pitch 角 (rad) */
     float imu_speed;            /* 上层 C 板 0x022 回传 pitch 角速度 (rad/s) */
     bool target_rebase_pending; /* 反馈恢复后按当前角度重建目标 */
-    float imu_limit_offset;     /* 锁存的 IMU 角 - 机械角，限位坐标变换参考 (rad) */
-    bool imu_limit_valid;       /* 切模式或反馈失效后重新锁存 */
-    float held_target;          /* 贴界锁存的目标值：外打期间绝对不变 (rad) */
-    bool target_held;           /* GYRO 域目标处于边界保持状态 */
-    bool held_at_max;           /* true=锁在上限 / false=锁在下限 */
     float min_limit;            /* 机械下限位（与上层 mec_min_rad 一致） */
     float max_limit;            /* 机械上限位 */
 } Gimbal_Pitch_Target_t;

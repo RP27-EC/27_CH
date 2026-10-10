@@ -85,25 +85,26 @@ $carControl = Get-Content -Raw $carControlHeader
 Assert-Match $carControl 'ALIGN_FRONT' 'AlignDir_e must be declared in car_control.h'
 Assert-Match $carControl 'ALIGN_BACK' 'AlignDir_e must include ALIGN_BACK'
 
-# 换头/掉头：GYRO/SPIN +180°；MECH 粘性锁轴翻转；结束后立刻按真实轴向对齐
+# 换头/掉头：仅 MECH 粘性锁轴翻转；GYRO/SPIN 世界系 +180° 已删除；结束后立刻按真实轴向对齐
 Assert-Match $gimbal 'Gimbal_Turn_Update' 'turn state machine must exist'
-Assert-Match $gimbal 'target_imu_angle\s*\+\s*PI' 'GYRO/SPIN turn must add 180° (PI) to the IMU yaw target'
+Assert-NotMatch $gimbal 'target_imu_angle\s*\+\s*PI' 'GYRO/SPIN world +180° turn must stay deleted'
 Assert-Match $gimbal 'ALIGN_BACK.*ALIGN_FRONT|ALIGN_FRONT.*ALIGN_BACK' 'MECH turn must toggle sticky FRONT/BACK lock'
 Assert-Match $gimbal 'Gimbal_Turn_Apply_Align_After' 'turn finish must re-apply align from real delta (chassis must not half-turn)'
 Assert-Match $gimbal 'align_veto_cnt\s*=\s*0U' 'after turn, align veto must clear so chassis follow_err is immediate'
 Assert-Match $gimbal 'turn_active' 'turn_active latch must exist'
 Assert-Match $gimbal 'YAW_TURN_ARRIVE_ERR_DEG' 'turn arrive threshold macro missing'
 Assert-Match $gimbal 'YAW_TURN_TIMEOUT_TICKS' 'turn timeout macro missing'
-# MECH 参与换头；SLEEP/INIT 仍否决
-Assert-Match $gimbal 'CAR_MODE_MECH\s*\|\|\s*car_mode\s*==\s*CAR_MODE_GYRO' 'MECH must be allowed into the turn state machine'
-if ($gimbal -match 'if\s*\(\s*!mode_ok\s*\)[\s\S]{0,120}CAR_MODE_MECH') {
-    throw 'MECH must not veto/abort turn (sticky lock toggle lives there)'
+# 仅 MECH 进换头状态机：非 MECH 一票否决
+Assert-Match $gimbal 'car_mode\s*!=\s*CAR_MODE_MECH' 'turn must veto every non-MECH mode'
+$turnUpdate = [regex]::Match($gimbal, 'static\s+void\s+Gimbal_Turn_Update\s*\([^)]*\)\s*\{(?<body>[\s\S]*?)\n\}')
+if (-not $turnUpdate.Success) { throw 'Gimbal_Turn_Update not found' }
+if ($turnUpdate.Groups['body'].Value -match 'CAR_MODE_GYRO|CAR_MODE_SPIN|target_imu_angle') {
+    throw 'turn state machine must stay MECH-only (GYRO/SPIN branch deleted)'
 }
-$gyroUpdate = [regex]::Match($gimbal, 'static\s+void\s+Gimbal_Gyro_Update\s*\([^)]*\)\s*\{(?<body>[\s\S]*?)\n\}')
-if (-not $gyroUpdate.Success) { throw 'Gimbal_Gyro_Update not found' }
-if ($gyroUpdate.Groups['body'].Value -notmatch 'turn_active') {
-    throw 'Gyro aim must be gated on turn_active during 换头'
-}
+# 触发端也只认 MECH（键鼠 R / 遥控 S1上+S2上+拨轮上）
+$carCtrl = Get-Content -Raw (Join-Path $repo 'Application/ControlLayer/carctrl.c')
+Assert-Match $carCtrl 'Car_R_Turn_Edge\(\)\s*&&\s*car->mode\s*==\s*CAR_MODE_MECH' 'R-key turn trigger must be MECH-only'
+Assert-Match $carCtrl 'tb_up\s*&&\s*car->mode\s*==\s*CAR_MODE_MECH' 'RC turn trigger must be MECH-only'
 Assert-Match $gimbal 'CAR_MODE_SPIN.*turn_active|turn_active.*CAR_MODE_SPIN|\(car_mode\s*==\s*CAR_MODE_SPIN\)\s*\|\|\s*gimbal->yaw\.turn_active' 'align veto must also freeze during turn'
 
 # ===== GYRO pitch 走 IMU（双板协议 + 上层闭环）=====
@@ -113,7 +114,8 @@ Assert-Match $gimbalHeader 'imu_angle' 'pitch struct must carry 0x022 pitch feed
 Assert-Match $gimbal 'pitch\.target_imu_angle' 'gimbal.c must accumulate GYRO pitch in IMU domain'
 Assert-Match $gimbal 'pitch\.target_imu_angle\s*=\s*gimbal->pitch\.imu_angle' 'GYRO entry must sync pitch IMU target to current IMU'
 Assert-Match $gimbal 'imu_domain' 'pitch update must branch MECH vs GYRO domain'
-Assert-Match $gimbal 'target_mec_angle\s*=\s*gimbal->pitch\.target_imu_angle' 'GYRO->MECH exit must rebase mec pitch target to last IMU target'
+# GYRO->MECH 退出时按当前真实机械角重定目标，绝不能拿 IMU 世界角当机械角
+Assert-Match $gimbal 'target_mec_angle\s*=\s*board_rx_info\.pitch_mech_angle' 'GYRO->MECH exit must rebase mec pitch target to the real mech angle (IMU world angle is not a mech angle)'
 Assert-Match $protocol 'SLAVE_RX_PITCH_IMU_ID' 'CAN2 must dispatch pitch IMU ID'
 Assert-Match $protocol 'Board_Rx_Pitch\(rxBuf\)' 'CAN2 must call Board_Rx_Pitch for 0x022'
 Assert-Match $communication 'pitch_use_imu' 'Board_Tx_D1 must carry pitch domain flag'
@@ -138,31 +140,36 @@ Assert-Match $upBoardCommH 'Board_Comm_Send_Pitch_IMU' 'Up board_comm must decla
 Assert-Match $upBoardCommC 'MASTER_RX_PITCH_IMU_CAN_ID' 'Up board_comm TX must use 0x022'
 Assert-Match $upBoardCommC 'pitch_use_imu\s*=\s*rx_buf\[6\]' 'Up must read pitch_use_imu from 0xD1 byte[6]'
 Assert-Match $upGimbalH 'use_imu' 'Up pitch struct must carry IMU closed-loop flag'
-Assert-Match $upGimbalH 'PITCH_IMU_SIGN' 'Up pitch IMU sign macro must exist for field calibration'
+# 符号约定已定死「抬头为正」：imu_pitch = base_info.pitch * DEG_TO_RAD（无负号、无符号宏）
+Assert-Match $upGimbalC 'imu_pitch\s*=\s*imu_sensor\.info->base_info\.pitch\s*\*\s*DEG_TO_RAD' 'Up must store IMU pitch with the fixed positive-up sign convention'
+Assert-NotMatch $upGimbalH 'PITCH_IMU_SIGN' 'pitch sign macro must stay deleted (sign fixed positive-up)'
 # MECH/GYRO pitch 必须两套独立 PID（结构存在即可，不锁增益数值）
-Assert-Match $upGimbalH 'mec_angle_pid' 'Up pitch must keep MECH angle PID separate'
-Assert-Match $upGimbalH 'mec_speed_pid' 'Up pitch must keep MECH speed PID separate'
-Assert-Match $upGimbalH 'gyro_angle_pid' 'Up pitch must keep GYRO angle PID separate'
-Assert-Match $upGimbalH 'gyro_speed_pid' 'Up pitch must keep GYRO speed PID separate'
-Assert-Match $upGimbalH 'gyro_max_speed_limit' 'Up pitch must allow independent GYRO outer speed limit'
-Assert-Match $upGimbalC 'mec_angle_pid' 'Up init/clear must manage MECH angle PID'
-Assert-Match $upGimbalC 'mec_speed_pid' 'Up init/clear must manage MECH speed PID'
-Assert-Match $upGimbalC 'gyro_angle_pid' 'Up init/clear must manage GYRO angle PID'
-Assert-Match $upGimbalC 'gyro_speed_pid' 'Up init/clear must manage GYRO speed PID'
+Assert-Match $upGimbalH 'mech_angle_pid' 'Up pitch must keep MECH angle PID separate'
+Assert-Match $upGimbalH 'mech_speed_pid' 'Up pitch must keep MECH speed PID separate'
+Assert-Match $upGimbalH 'imu_angle_pid' 'Up pitch must keep IMU angle PID separate'
+Assert-Match $upGimbalH 'imu_speed_pid' 'Up pitch must keep IMU speed PID separate'
+Assert-Match $upGimbalH 'max_speed_limit' 'Up pitch must keep the outer speed limit'
+Assert-Match $upGimbalC 'mech_angle_pid' 'Up init/clear must manage MECH angle PID'
+Assert-Match $upGimbalC 'mech_speed_pid' 'Up init/clear must manage MECH speed PID'
+Assert-Match $upGimbalC 'imu_angle_pid' 'Up init/clear must manage IMU angle PID'
+Assert-Match $upGimbalC 'imu_speed_pid' 'Up init/clear must manage IMU speed PID'
 Assert-Match $upGimbalC 'Gimbal_Pitch_Clear_Pids' 'domain switch / Safe_Stop must clear all pitch PID sets'
 Assert-Match $upGimbalC 'board_rx_info\.pitch_use_imu' 'Up gimbal must consume pitch domain flag'
-Assert-Match $upGimbalC 'mec_max_rad' 'Up IMU path must soft-limit via mec max'
-Assert-Match $upGimbalC 'mec_min_rad' 'Up IMU path must soft-limit via mec min'
-Assert-Match $upGimbalC 'imu_pitch' 'Up PID must close on IMU pitch when use_imu'
-Assert-Match $upGimbalC 'imu_pitch_rate' 'Up speed loop must close on IMU pitch rate when use_imu'
+# 软限位：GYRO 域吃静态 IMU 限位（0.04/0.70 定死），MECH 域吃 mec_min/max_rad
+Assert-Match $upGimbalC 'PITCH_MIN_IMU_ANGLE' 'IMU path must soft-limit via the static IMU floor'
+Assert-Match $upGimbalC 'PITCH_MAX_IMU_ANGLE' 'IMU path must soft-limit via the static IMU ceiling'
+Assert-Match $upGimbalC 'mec_min_rad' 'MECH path must soft-limit via mec min'
+Assert-Match $upGimbalC 'mec_max_rad' 'MECH path must soft-limit via mec max'
+Assert-Match $upGimbalC 'use_imu\s*\?\s*gimbal\.pitch\.imu_pitch' 'outer angle loop must close on world IMU pitch in GYRO'
+Assert-Match $upGimbalC 'imu_speed' 'Up must carry IMU pitch rate for the speed loop'
 Assert-Match $upGimbalC 'Pitch_Gravity_Compensation' 'gravity feedforward must remain in the torque path'
-# 重力是世界系量：GYRO 必须吃 IMU（闭环同一 imu_pitch 字段），MECH 吃编码器；禁止两域都锁 encoder
-Assert-Match $upGimbalC 'use_imu\s*\?\s*gimbal\.pitch\.imu_pitch' 'GYRO gravity must use world IMU pitch'
-Assert-Match $upGimbalC 'use_imu\s*\?\s*gimbal\.pitch\.gyro_gravity_phase_deg' 'GYRO gravity phase must be independent'
-Assert-Match $upGimbalC ': gimbal\.pitch\.feedback_pitch' 'MECH gravity must fall back to encoder mec'
-Assert-Match $upGimbalH 'gyro_gravity_phase_deg' 'GYRO gravity phase must be independently tunable'
+# 重力前馈：一条 cos、永远吃编码器机械角（两域共用）；禁切 use_imu 分支、禁吃 IMU 角（自激励）
+Assert-Match $upGimbalC 'Pitch_Gravity_Compensation\s*\(\s*gimbal\.pitch\.feedback_pitch\s*\)' 'FF must eat the encoder mech angle in both modes'
+Assert-NotMatch $upGimbalC 'Pitch_Gravity_Compensation\s*\(\s*gimbal\.pitch\.imu_pitch' 'FF must never eat the IMU angle (self-excitation)'
+Assert-NotMatch $upGimbalC 'use_imu\s*\?\s*gimbal\.pitch\.gravity' 'FF knobs must not fork per domain (single cos model)'
+Assert-Match $upGimbalH 'gravity_max_torque' 'FF amplitude knob must exist'
+Assert-Match $upGimbalH 'gravity_phase_deg' 'FF phase knob must exist'
+Assert-NotMatch $upGimbalH 'gyro_gravity_phase_deg' 'per-domain gravity phase must stay deleted'
 Assert-Match $upControl 'Board_Comm_Send_Pitch_IMU' 'Up control task must send 0x022 pitch IMU'
-Assert-Match $upControl 'gimbal\.pitch\.imu_pitch' 'Up control task must store IMU pitch on gimbal object'
-Assert-Match $upControl 'PITCH_IMU_SIGN' 'Up control task must apply pitch IMU sign macro'
 
 Write-Output 'gimbal IMU safety contract passed'

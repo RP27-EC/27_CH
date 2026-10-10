@@ -23,21 +23,21 @@ foreach ($flag in @('is_shoot_system_on', 'is_single_shoot_cmd', 'is_continuous_
     }
 }
 
-# 换头触发：遥控 S1上+S2上+拨轮上；键鼠 R（真边沿）；MECH/GYRO/SPIN 均可
+# 换头触发：遥控 S1上+S2上+拨轮上；键鼠 R（真边沿）；仅 MECH（GYRO/SPIN 掉头已删除）
 if ($control -notmatch 's1\s*==\s*RC_SW_UP\s*&&\s*s2\s*==\s*RC_SW_UP\s*&&\s*tb_up') {
     throw 'Turn trigger must be RC: S1-up + S2-up + thumbwheel-up'
 }
 if ($control -notmatch 'Car_R_Turn_Edge\s*\(\s*\)') {
     throw 'Keyboard turn must use a true one-frame R edge (status can hold for ~7 control ticks)'
 }
-if ($control -notmatch 'CAR_MODE_MECH\s*\|\|') {
-    throw 'Turn must be allowed in MECH (sticky head lock toggle)'
+if ($control -notmatch 'Car_R_Turn_Edge\s*\(\s*\)\s*&&\s*car->mode\s*==\s*CAR_MODE_MECH') {
+    throw 'Turn must be MECH-only (sticky head lock toggle); GYRO/SPIN world +180 turn is deleted'
 }
-if ($control -notmatch 'CAR_MODE_GYRO\s*\|\|') {
-    throw 'Turn must be allowed in GYRO'
+if ($control -notmatch 'tb_up\s*&&\s*car->mode\s*==\s*CAR_MODE_MECH') {
+    throw 'RC turn must be MECH-only'
 }
-if ($control -notmatch 'car->mode\s*==\s*CAR_MODE_SPIN') {
-    throw 'Turn must be allowed in SPIN'
+if ($control -match 'is_turn_cmd\s*=\s*true[\s\S]{0,80}CAR_MODE_GYRO|CAR_MODE_GYRO[\s\S]{0,80}is_turn_cmd\s*=\s*true') {
+    throw 'GYRO must not arm the turn pulse'
 }
 if ($control -notmatch 'is_turn_cmd\s*=\s*false') {
     throw 'Turn pulse must be cleared every tick'
