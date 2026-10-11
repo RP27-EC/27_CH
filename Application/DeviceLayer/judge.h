@@ -40,6 +40,15 @@ typedef struct
 	float shooting_speed;
 }Judge_Info_t;
 
+/* 0x0201 已通过 CRC 后的处理结果，供 Keil Watch 查看。 */
+typedef enum
+{
+	JUDGE_ROBOT_STATE_NONE = 0,
+	JUDGE_ROBOT_STATE_ACCEPTED = 1,
+	JUDGE_ROBOT_STATE_BAD_LENGTH = 2,
+	JUDGE_ROBOT_STATE_ZERO_LIMIT = 3
+} Judge_Robot_State_Result_t;
+
 typedef struct
 {
 	uint16_t offline_cnt_max;
@@ -47,6 +56,10 @@ typedef struct
 	uint16_t offline_cnt;
 	volatile bool limit_received, buffer_received;
 	volatile uint32_t limit_rx_count, limit_update_ms, buffer_rx_count, buffer_update_ms;
+	/* 以下记录所有 CRC 正确的 0x0201 尝试；limit_* 只记录被接纳的有效上限。 */
+	volatile uint32_t robot_state_rx_count, robot_state_update_ms;
+	volatile uint16_t robot_state_length, robot_state_limit_raw;
+	volatile uint8_t robot_state_result; /* 对应 Judge_Robot_State_Result_t。 */
 }Judge_Status_t;
 
 typedef struct

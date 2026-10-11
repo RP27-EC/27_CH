@@ -58,6 +58,9 @@ void My_Judge_Init()
 	My_Judge.status->buffer_received = false;
 	My_Judge.status->limit_rx_count = My_Judge.status->limit_update_ms = 0;
 	My_Judge.status->buffer_rx_count = My_Judge.status->buffer_update_ms = 0;
+	My_Judge.status->robot_state_rx_count = My_Judge.status->robot_state_update_ms = 0;
+	My_Judge.status->robot_state_length = My_Judge.status->robot_state_limit_raw = 0;
+	My_Judge.status->robot_state_result = JUDGE_ROBOT_STATE_NONE;
 }
 
 /**
@@ -148,13 +151,45 @@ void judge_update(uint16_t id, const uint8_t *rxBuf, uint16_t length)
     uint16_t expected = 0;
     if (rxBuf == NULL) return;
     switch (id) {
-    case ID_game_robot_state:
-        if (length != 13u || (rxBuf[10] == 0 && rxBuf[11] == 0)) return;
-        memcpy(&My_Judge.org_info->game_robot_status, rxBuf, 13u);
-        My_Judge.status->limit_update_ms = HAL_GetTick();
+    case ID_game_robot_state: {
+        ext_game_robot_status_t decoded = {0};
+        float speed_limit;
+        uint8_t flags;
+        uint32_t now = HAL_GetTick();
+
+        /* 常驻诊断：无需条件断点，也能看到被长度校验拒绝的报文。 */
+        My_Judge.status->robot_state_rx_count++;
+        My_Judge.status->robot_state_update_ms = now;
+        My_Judge.status->robot_state_length = length;
+        My_Judge.status->robot_state_limit_raw = 0;
+        My_Judge.status->robot_state_result = JUDGE_ROBOT_STATE_BAD_LENGTH;
+        if (length != LEN_game_robot_state_13 && length != LEN_game_robot_state) return;
+
+        /* 两种布局的前 12 字节相同；先检查长度，再访问小端功率字段。 */
+        My_Judge.status->robot_state_limit_raw = (uint16_t)(rxBuf[10] | ((uint16_t)rxBuf[11] << 8));
+        if (My_Judge.status->robot_state_limit_raw == 0) {
+            My_Judge.status->robot_state_result = JUDGE_ROBOT_STATE_ZERO_LIMIT;
+            return; /* 不用零值覆盖最后有效上限，不刷新其时间戳。 */
+        }
+        memcpy(&decoded, rxBuf, 12u);
+        if (length == LEN_game_robot_state) {
+            /* 17 字节版本多了 float 射速上限，输出标志随之移动到偏移 16。 */
+            memcpy(&speed_limit, rxBuf + 12, sizeof(speed_limit));
+            decoded.bullet_speed_limit = speed_limit;
+            flags = rxBuf[16];
+        } else {
+            flags = rxBuf[12]; /* 13 字节版本没有射速上限，decoded 中保持零。 */
+        }
+        decoded.power_management_gimbal_output = (flags & 0x01u) != 0;
+        decoded.power_management_chassis_output = (flags & 0x02u) != 0;
+        decoded.power_management_shooter_output = (flags & 0x04u) != 0;
+        My_Judge.org_info->game_robot_status = decoded;
+        My_Judge.status->limit_update_ms = now;
         My_Judge.status->limit_rx_count++;
         My_Judge.status->limit_received = true;
+        My_Judge.status->robot_state_result = JUDGE_ROBOT_STATE_ACCEPTED;
         break;
+    }
     case ID_power_heat_data:
         if (length == 16u) {
             memcpy(&My_Judge.org_info->power_heat_data, rxBuf, 16u);

@@ -154,6 +154,7 @@ typedef __packed struct
   uint16_t shooter_barrel_cooling_value;
   uint16_t shooter_barrel_heat_limit;
   uint16_t chassis_power_limit;
+	float bullet_speed_limit; /* 17 字节版本新增；13 字节版本解析后置零。 */
 	uint8_t power_management_gimbal_output : 1;
   uint8_t power_management_chassis_output : 1;
   uint8_t power_management_shooter_output : 1;
@@ -270,7 +271,8 @@ enum
 	LEN_supply_projectile_action   	= 4,			//0x0102,//场地补给站动作标识数据
 	LEN_referee_warning					 		= 2,			//0x0104,//裁判警告数据，警告后发送
 	LEN_dart_remaining_time					= 1,			//0x0105,//飞镖发射口倒计时，1Hz
-	LEN_game_robot_state    				= 13,			//0x0201,//机器人状态数据，10Hz
+	LEN_game_robot_state_13          = 13,     //0x0201，短版本：输出标志在偏移 12
+	LEN_game_robot_state             = 17,     //0x0201，本工作区版本：偏移 12 有 float，标志在偏移 16
 	LEN_power_heat_data    					= 16,			//0x0202,//实时功率热量数据，50Hz
 	LEN_game_robot_pos        			= 16,			//0x0203,//机器人位置数据，10Hz
 	LEN_buff_musk										= 1,			//0x0204,//机器人增益数据，1Hz

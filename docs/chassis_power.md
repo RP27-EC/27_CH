@@ -70,6 +70,44 @@ cap.status->power_rx_count
 cap.status->power_update_ms
 ```
 
+## 0x0201 长度兼容与拒收排查
+
+实车调试发现 `0x0201` 的 `data_length=17`，原来的 `length != 13` 校验会拒收，使 `limit_received=0`，默认功率预算为零。现按同工作区 `Down/RP26_Lob_Hero_Down/Application/ProtocolLayer/judge_protocol.h` 的 17 字节布局兼容解析，并保留 13 字节版本。
+
+下表偏移从载荷第一个字节 `rxBuf[0]` 起算，不包括帧头与命令 ID。
+
+| 载荷长度 | 底盘功率上限 | 射速上限 | 输出标志 |
+| --- | --- | --- | --- |
+| 13 字节 | 偏移 10，小端 uint16，单位 W | 不携带，解析后置零 | 偏移 12 |
+| 17 字节 | 偏移 10，小端 uint16，单位 W | 偏移 12，float | 偏移 16 |
+
+输出标志的 bit 0/1/2 分别表示云台、底盘、射击机构。不能将 17 字节帧直接按 13 字节结构复制，否则会把射速 float 的首字节当输出标志。内部 `ext_game_robot_status_t` 已包含 `bullet_speed_limit`；必须重新构建并下载整份固件。
+
+无需条件断点，添加以下常驻 Watch：
+
+```c
+My_Judge.status->robot_state_rx_count
+My_Judge.status->robot_state_update_ms
+My_Judge.status->robot_state_length
+My_Judge.status->robot_state_limit_raw
+My_Judge.status->robot_state_result
+```
+
+`robot_state_rx_count` 记录所有通过 CRC 并进入状态帧解析的次数，包括拒收帧；`robot_state_update_ms` 是最近一次尝试的时间；`robot_state_limit_raw` 是支持布局中读到的功率上限，不支持的长度记零。
+
+| `robot_state_result` | 含义 |
+| --- | --- |
+| 0 | 初始化后还未处理状态帧 |
+| 1 | 已接纳非零功率上限 |
+| 2 | 长度不是已核对的 13/17 字节 |
+| 3 | 长度支持，但功率上限为零，未接纳 |
+
+未知长度、零上限与 CRC 错误均不会刷新 `limit_update_ms` 或覆盖最后有效上限；CRC 错误帧不进入 `judge_update()`，也不会增加 `robot_state_rx_count`。13/17 字节并不能代表任意版本的通用兼容：如发送端布局变化，应重新核对字段定义。
+
+下载后，先确认 `robot_state_length=17`、`robot_state_result=1`、`limit_received=1`、`limit_rx_count` 持续增长，以及 `game_robot_status.chassis_power_limit` 为实际收到的非零上限；再检查功率预算。正常接收仍为零上限时保持拒收，不用固定功率掩盖通信问题。
+
+底盘初始化中的 `Chassis_Power_Init()` 和发送前的 `Chassis_Power_Apply()` 已恢复调用；这两处如果被注释，接收正常也不会执行限流。
+
 ## 第三组 Watch：允许功率怎么得到
 
 ```c
