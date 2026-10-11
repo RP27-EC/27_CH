@@ -192,7 +192,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     }
 
     /* 速度从云台坐标系转换到底盘坐标系：MECH / GYRO / SPIN 统一投影。
-       符号约定沿用现网 GYRO 公式（与 vy=-lateral 配套），不得改向。 */
+     * 操作手输入在云台坐标系（视线方向），按 delta_theta 投影到底盘系。*/
     if (car_mode == CAR_MODE_GYRO || car_mode == CAR_MODE_SPIN ||
         car_mode == CAR_MODE_MECH) {
         /* 预计算三角函数值 */

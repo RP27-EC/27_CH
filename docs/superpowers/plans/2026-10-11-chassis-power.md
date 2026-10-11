@@ -1,5 +1,7 @@
 # Chassis power implementation plan
 
+> 历史方案：本文件中的 80 W 默认训练回退、50 J 目标和两类修正相加已被 [提前干预实施计划](2026-10-11-chassis-power-guard.md) 替代；当前参数与 Watch 说明见 [chassis_power.md](../../chassis_power.md)。
+
 > **For agentic workers:** Use subagent-driven-development for the independent referee receive task, then integrate and verify in this workspace. Track each step below.
 
 **Goal:** Limit four-wheel current using a power model, referee limits, buffer feedback and read-only capacitor power measurements.

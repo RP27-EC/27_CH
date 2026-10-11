@@ -2,6 +2,8 @@
  * 调用位置：chassis.c 中，四轮速度 PID 算完后、四轮 CAN 发送前。
  * 三步关系：Apply 取数 -> Update 算允许功率 -> Limit 修改电流 -> Apply 写回。
  * 算法修改的是准备发送的电流指令，不是编码器反馈，也不是轮子目标 RPM。
+ * Debug 原始量：My_Judge.org_info 的功率上限/当前缓冲，cap.info->chassis_power。
+ * 目标 60 J、警戒值、最终预算只存在算法对象里，不写回这三个实收字段。
  */
 #include "chassis_power.h" /* 引入功率算法的输入结构体和函数声明。 */
 #include "chassis_motor.h" /* 访问四个底盘电机的 PID 电流和编码器转速。 */
@@ -33,7 +35,7 @@ void Chassis_Power_Apply(void) {
     }
     __set_PRIMASK(irq_mask); /* 恢复原中断状态；复制结束就恢复，不把下面的功率计算放在临界区内。 */
 
-    Chassis_Power_Update(&input, now_ms); /* 第一步：&input 把快照地址交给算法；允许瓦数写入全局 target_power_w，不靠返回值传递。 */
+    Chassis_Power_Update(&input, now_ms); /* 第一步：&input 传真实快照；预算和来源写入算法对象，不伪造裁判/超电字段。 */
     Chassis_Power_Limit(current, rpm); /* 第二步：算法读全局预算；传数组地址，所以直接修改这里的 current 数组，不需要返回新数组。 */
     for (unsigned i = 0; i < CHASSIS_POWER_WHEEL_COUNT; ++i) /* 第三步：把修改后的四轮电流放回电机发送对象。 */
         Chassis_Motor[i].tx_info->torque = current[i]; /* 随后的 group_set_torque() 才负责打包并发送 CAN。 */
