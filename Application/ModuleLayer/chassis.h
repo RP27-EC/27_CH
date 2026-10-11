@@ -23,7 +23,7 @@
 /* 小陀螺归一化自旋速度；轮速约为 CHASSIS_MAX_MOTOR_RPM * 此值。 */
 #define CHASSIS_SPIN_NORMALIZED (0.75f)  /* 纯旋转约 5250RPM */
 
-/* 云台跟随参数：输入为云台相对车头的弧度角，输出为[-1, 1]的底盘旋转指令；当前未加入遥控器前馈。 */
+/* 云台夹角反馈，与遥控/键鼠等效通道的输入前馈共同形成 GYRO 旋转指令。 */
 #define CHASSIS_FOLLOW_DEADZONE (0.026f) /* 约1.5度的角度死区，抑制零位附近的抖动 */
 #define FOLLOW_K_LINEAR         (0.80f)  /* 线性项系数：决定小角度时的跟随力度 */
 #define FOLLOW_K_QUADRATIC      (0.0f)  /* 二次项系数：增大大角度时的追赶力度 */
@@ -32,6 +32,7 @@
 #define CHASSIS_YAW_FF_GAIN      (0.8f) //摇杆前馈增益
 
 float Chassis_Calc_Follow_Wz_Norm(float delta_angle);
+void Chassis_Reset_Yaw_Feedforward(void); /* 停车或换输入源时清零低通历史。 */
 
 
 void Chassis_Init(void);

@@ -260,6 +260,9 @@ void RC_ResetData(rc_sensor_t *rc)
 	rc->info->mouse_x = 0.f;    /* 鼠标X轴位移 */
 	rc->info->mouse_y = 0.f;    /* 鼠标Y轴位移 */
 	rc->info->mouse_z = 0.f;    /* 鼠标Z轴位移 */
+	rc->info->frame_update_ms = 0;
+	rc->info->frame_interval_ms = 0;
+	rc->info->frame_received = false; /* 复位后首帧不凭空假设帧间隔。 */
 	rc->info->mouse_btn_l.value = 0;  /* 左键 */
 	rc->info->mouse_btn_r.value = 0;  /* 右键 */
 

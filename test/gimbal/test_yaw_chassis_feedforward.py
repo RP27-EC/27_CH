@@ -7,7 +7,9 @@ import test_yaw_derivative as fixture
 class YawChassisFeedforwardTest(unittest.TestCase):
     def run_case(self, body):
         # Exercise the specified gains independently of the robot's tuned default.
-        fixture.YawDerivativeTest.run_case(self, 'g.yaw.chassis_fow_rads=1.0f;\n' + body)
+        # 本组验证补偿代数关系；机械速度 D 的瞬态由 test_yaw_derivative 单独验证。
+        # 用户生产参数可调为非零，不能让默认 D 值改变本组的零误差断言。
+        fixture.YawDerivativeTest.run_case(self, 'g.yaw.chassis_fow_rads=1.0f;g.yaw.mec_speed_pid.kd=0;\n' + body)
 
     def test_aligned_turret_tracks_chassis_without_angle_error(self):
         self.run_case(r'''

@@ -198,6 +198,10 @@ typedef struct rc_sensor_info_struct {
 	   鼠标位移是「一帧一个采样」，而 Gimbal_Update 跑 2ms，
 	   消费侧比对这个序号就能保证一帧只累加一次，不会把同一采样算 ~7 遍 */
 	uint16_t                frame_seq;
+	/* USART5 有效 DBUS 帧的真实到达时间；用于鼠标位移 -> rad/s，单位 ms。 */
+	volatile uint32_t       frame_update_ms;
+	volatile uint32_t       frame_interval_ms;
+	volatile bool           frame_received;
 
 	int16_t		offline_cnt;
 	int16_t		offline_max_cnt;

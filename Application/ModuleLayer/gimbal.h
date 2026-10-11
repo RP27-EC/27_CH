@@ -51,6 +51,8 @@
    上机手感不对就调这两个数，别去动闸门。 */
 #define MOUSE_YAW_SENS              (0.001f)    /* 鼠标横向 -> Yaw 目标角增量 (rad) */
 #define MOUSE_PITCH_SENS            (0.0012f)   /* 鼠标纵向 -> Pitch 目标角增量 (rad) */
+#define MOUSE_YAW_FF_TIMEOUT_MS     (50U)      /* 无新有效鼠标帧 50 ms 就清零底盘前馈。 */
+#define GIMBAL_CONTROL_PERIOD_S    (0.002f)   /* 与控制任务 2 ms 周期一致，用于等效摇杆换算。 */
 
 /* Ctrl + WASD 单击 = 云台目标角步进微调（度 -> 弧度）。
    只认「刚按下」边沿，不连发，操作手可以数着步数校准。
@@ -112,6 +114,14 @@ typedef struct {
     float imu_angle;            /* 上层 C 板发来的绝对角度 yaw_imu (rad) */
     float imu_speed;            /* 上层 C 板发来的绝对角速度 yaw_v (rad/s) */
     float gyro_sensitivity;      /* GYRO 模式每周期、每单位摇杆输入的目标角增量 (rad) */
+
+    /* GYRO 键鼠 -> 底盘前馈：转换为等效 ch0，复用遥控前馈链路。 */
+    float key_yaw_ff_gain;       /* 独立倍率，默认 1；Watch 可调，不改变瞄准灵敏度。 */
+    float key_yaw_speed_rads;    /* 最近新帧目标角增量 / DBUS 间隔，rad/s。 */
+    int16_t key_yaw_ff_channel;  /* 等效 ch0，范围 [-660,660]，正值对应向右。 */
+    uint16_t key_yaw_ff_last_seq;
+    bool key_yaw_ff_active;      /* 本拍的模式/输入源/设备状态允许鼠标前馈。 */
+    bool key_yaw_ff_valid;       /* 有连续、新鲜且非零的鼠标输入可用于前馈。 */
 
     /* 仅 MECH 使用双向就近对齐；GYRO 保持空间目标，不使用车头/车尾锁轴。 */
     AlignDir_e align_dir;       /* FRONT=锁0° / BACK=锁180°，88°/91° 迟滞维护 */

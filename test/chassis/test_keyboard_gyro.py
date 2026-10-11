@@ -29,17 +29,22 @@ def harness():
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
+#include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
+#undef errno /* Windows CRT 宏与固件 rc_sensor.errno 字段同名。 */
 #define PI 3.14159265358979323846f
+#define constrain(x,lo,hi) ((x)>(hi)?(hi):((x)<(lo)?(lo):(x)))
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);exit(1);}}while(0)
 ''' + read('Application/ControlLayer/car_control.h') + read('Application/AlgorithmLayer/PID.h') + strip_includes(read('Application/ModuleLayer/gimbal.h')) + strip_includes(read('Application/ModuleLayer/chassis.h')) + read('Application/ModuleLayer/chassis_kinematics.h') + read('Application/AlgorithmLayer/chassis_power.h') + '\n'.join(re.findall(r'^#define CHASSIS_(?:FL|FR|BL|BR)_DIRECTION[^\n]*', read('Application/DeviceLayer/chassis_motor.h'), re.M)) + '\n' + '\n'.join(re.findall(r'^#define KEY_[WAQ]_CNT_MAX[^\n]*', read('Application/DeviceLayer/Sensor/rc_sensor.h'), re.M)) + r'''
 #include <string.h>
 static uint32_t tick;
+static uint32_t irq_mask;
+static void (*after_irq_restore)(void);
 static uint32_t HAL_GetTick(void){return tick;}
-static uint32_t __get_PRIMASK(void){return 0;}
-static void __disable_irq(void){}
-static void __set_PRIMASK(uint32_t x){(void)x;}
+static uint32_t __get_PRIMASK(void){return irq_mask;}
+static void __disable_irq(void){irq_mask=1;}
+static void __set_PRIMASK(uint32_t x){irq_mask=x;if(after_irq_restore)after_irq_restore();}
 struct {
     struct {struct {uint16_t chassis_power_limit;} game_robot_status;
             struct {uint16_t chassis_power_buffer;} power_heat_data;} *org_info;
@@ -50,11 +55,18 @@ struct {
     struct {int16_t chassis_power;} *info;
     struct {bool power_received;uint32_t power_rx_count,power_update_ms;} *status;
 } cap;
-struct Key {int cnt;};
-struct Rc {struct Key W,A,S,D,Q,E;int16_t ch0,ch2,ch3;} rc;
-struct {struct Rc *info;} rc_sensor={&rc};
+enum {release, release_to_press};
+enum {DEV_OFFLINE, DEV_ONLINE, NONE_ERR, DEV_DATA_ERR};
+struct Key {int cnt,value,status;};
+struct Rc {struct Key W,A,S,D,Q,E,Ctrl,Shift;int16_t ch0,ch2,ch3,mouse_vx;
+    float mouse_x;uint16_t frame_seq;uint32_t frame_update_ms,frame_interval_ms;
+    bool frame_received;} rc;
+struct {struct Rc *info;int work_state,errno;} rc_sensor={&rc,DEV_ONLINE,NONE_ERR};
+struct {bool is_online;} board_rx_info={true};
 static bool ctrl_fall_edge;
 static uint8_t ctrl_val_snap;
+Car_t hero_car;
+Gimbal_t hero_gimbal;
 typedef struct Motor Motor;
 struct Motor {
     struct {pid_ctrl_t *speed_ctrl;} *ctrl;
@@ -70,7 +82,7 @@ static float sent_current[4];
 static void group_send(struct Group *g){(void)g;for(int i=0;i<4;i++)sent_current[i]=Chassis_Motor[i].tx_info->torque;}
 void pid_clear(pid_ctrl_t *p){*p=(pid_ctrl_t){0};}
 static void motor_set_speed(Motor *m){m->tx_info->torque=m->ctrl->speed_ctrl->target*3;}
-''' + strip_includes(read('Application/AlgorithmLayer/chassis_power.c')) + strip_includes(read('Application/ModuleLayer/chassis_power_adapter.c')) + strip_includes(read('Application/ModuleLayer/chassis_kinematics.c')) + strip_includes(read('Application/ModuleLayer/chassis.c')) + function(read('Application/ControlLayer/carctrl.c'), 'void Car_Chassis_Channel_Get(') + '\nstatic void update_alignment(Gimbal_t *gimbal,CarMode_e car_mode){\n' + gimbal[start:end] + '\n}\n' + function(gimbal, 'static void Gimbal_Mech_Update(') + r'''
+''' + strip_includes(read('Application/AlgorithmLayer/chassis_power.c')) + strip_includes(read('Application/ModuleLayer/chassis_power_adapter.c')) + strip_includes(read('Application/ModuleLayer/chassis_kinematics.c')) + strip_includes(read('Application/ModuleLayer/chassis.c')) + function(read('Application/ControlLayer/carctrl.c'), 'void Car_Chassis_Channel_Get(') + '\nstatic void update_alignment(Gimbal_t *gimbal,CarMode_e car_mode){\n' + gimbal[start:end] + '\n}\n' + function(gimbal, 'static void Gimbal_Mech_Update(') + function(gimbal, 'static float Gimbal_Trim_Step(') + function(gimbal, 'static void Gimbal_Key_Yaw_Feedforward_Clear(') + function(gimbal, 'static void Gimbal_Key_Yaw_Feedforward_Enable(') + function(gimbal, 'static void Gimbal_Key_Yaw_Update(') + r'''
 static void setup(void){
     My_Judge.org_info=calloc(1,sizeof(*My_Judge.org_info));
     My_Judge.status=calloc(1,sizeof(*My_Judge.status));
@@ -84,17 +96,18 @@ static void setup(void){
         Chassis_Motor[i].single_set_speed=motor_set_speed;
     }
     Chassis_Power_Init();
+    hero_gimbal.yaw.gyro_sensitivity=.000015f;hero_gimbal.yaw.key_yaw_ff_gain=1.0f;
 }
 static void near(float a,float b){CHECK(fabsf(a-b)<.001f);}
 '''
 
 
 class KeyboardGyroTest(unittest.TestCase):
-    def run_case(self, body):
+    def run_case(self, body, preamble=''):
         with tempfile.TemporaryDirectory() as directory:
             src = pathlib.Path(directory) / 'keyboard_gyro.c'
             exe = pathlib.Path(directory) / 'keyboard_gyro.exe'
-            src.write_text(harness() + '\nint main(void){setup();\n' + body + '\nreturn 0;}\n', encoding='utf-8')
+            src.write_text(harness() + preamble + '\nint main(void){setup();\n' + body + '\nreturn 0;}\n', encoding='utf-8')
             compiled = subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', str(src), '-lm', '-o', str(exe)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(exe)], capture_output=True, text=True)

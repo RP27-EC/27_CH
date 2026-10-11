@@ -28,6 +28,11 @@ static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
 
 static float chassis_yaw_ff_filtered = 0.0f;
 
+void Chassis_Reset_Yaw_Feedforward(void)
+{
+    chassis_yaw_ff_filtered = 0.0f;
+}
+
 static float Chassis_Clamp_Channel(int16_t channel)
 {
     /* 上限限幅：不超过最大值660 */
@@ -103,6 +108,7 @@ float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
 
 void Chassis_Stop(void)
 {
+    Chassis_Reset_Yaw_Feedforward();
     Chassis_Power_Clear_Output();
     /* 遍历四个轮子，逐个清零PID控制器和电机输出 */
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
@@ -221,12 +227,12 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                 vy *= trans_scale;
             }
         } else if (car_mode == CAR_MODE_GYRO) {
-            /* 右摇杆回中时立即清空前馈，避免低通滤波残值造成松手后继续旋转。 */
+            /* 摇杆回中或鼠标等效通道归零时清空前馈，避免松手后的滤波尾值。 */
             if (fabsf((float)rotate) <= (float)CHASSIS_ROTATE_DEADZONE) {
                 chassis_yaw_ff_filtered = 0.0f;
                 wz = 0.0f;
             } else {
-                /* 非回中时才对右摇杆旋转输入进行低通平滑 */
+                /* 遥控 ch0 / 键鼠等效 ch0 共用低通平滑，不重复积分鼠标位移。 */
                 /* 一阶低通滤波（加权平均形式）：新值 = (1-α)×旧值 + α×摇杆输入 */
                 chassis_yaw_ff_filtered =
                     (1.0f - CHASSIS_YAW_FF_LPF_ALPHA) * chassis_yaw_ff_filtered +

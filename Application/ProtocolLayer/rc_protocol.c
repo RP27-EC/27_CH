@@ -341,6 +341,7 @@ void keyboard_status_update(key_board_info_t *key)
   */
 void USART5_rxDataHandler(uint8_t *rxBuf)
 {
+    uint32_t now_ms = HAL_GetTick(); /* 收帧时间，不使用控制任务的 2 ms 代替 DBUS 间隔。 */
     /* 每收到一帧完整的DBUS数据就重置离线计数器（包括第一帧） */
     rc_sensor.info->offline_cnt = 0;
 
@@ -352,6 +353,17 @@ void USART5_rxDataHandler(uint8_t *rxBuf)
 
     /* 对鼠标速度进行滑动均值滤波 */
     rc_interrupt_update(&rc_sensor);
+
+    /* 校验成功的相邻帧才有可用间隔；错误后下一帧重新建立时间基准。 */
+    if (rc_sensor.errno == NONE_ERR) {
+        rc_sensor.info->frame_interval_ms = rc_sensor.info->frame_received ?
+            now_ms - rc_sensor.info->frame_update_ms : 0U;
+        rc_sensor.info->frame_update_ms = now_ms;
+        rc_sensor.info->frame_received = true;
+    } else {
+        rc_sensor.info->frame_interval_ms = 0U;
+        rc_sensor.info->frame_received = false;
+    }
 
     /* 帧序号自增：消费侧（云台鼠标瞄准）靠它做「一帧只累加一次」的闸门 */
     rc_sensor.info->frame_seq++;

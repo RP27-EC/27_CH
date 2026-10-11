@@ -426,7 +426,7 @@ static void Car_Key_Action_Cmd_Update(Car_t *car) {
   *
   *          键鼠旋转映射（仅机械模式）：Q=左旋、E=右旋，与摇杆左右同向
   *          （chassis.c 对 rotate 通道取反后，左打 = 逆时针）。
-  *          GYRO/SPIN 不映射旋转，*rotate 恒为 0 —— 跟随/自旋由模式自己给 wz。
+  *          GYRO 的 rotate 承载鼠标等效前馈，SPIN 保持 0，自旋由模式给 wz。
   *
   * @param  car     : 整车状态机对象指针
   * @param  forward : 前后通道（正 = 前）
@@ -435,6 +435,13 @@ static void Car_Key_Action_Cmd_Update(Car_t *car) {
   * @retval None
   */
 void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int16_t *rotate) {
+    static InputSrc_e last_input_src = INPUT_SRC_RC;
+    static CarMode_e last_mode = CAR_MODE_SLEEP;
+    if (car->input_src != last_input_src || car->mode != last_mode) {
+        Chassis_Reset_Yaw_Feedforward(); /* 切换不能把上一输入源的低通残值带进来。 */
+        last_input_src = car->input_src;
+        last_mode = car->mode;
+    }
 
     const bool ramp_live = (car->input_src == INPUT_SRC_KEY) &&
                            (car->mode != CAR_MODE_SLEEP) &&
@@ -479,10 +486,12 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
 
         /* 机械模式才映射旋转：E - Q 使 E 为正、Q 为负，
            与摇杆 ch0 左负右正同号，经 chassis.c 取反后方向一致。
-           GYRO/SPIN 恒为 0：跟随/自旋由模式自己给 wz，键鼠不再给旋转键。 */
+           GYRO 使用云台产生的鼠标等效通道作前馈；SPIN 不接收旋转键。 */
         if (car->mode == CAR_MODE_MECH) {
             *rotate = (int16_t)((float)(rc_sensor.info->E.cnt - rc_sensor.info->Q.cnt)
                                 * CHASSIS_RC_MAX_VALUE / (float)KEY_Q_CNT_MAX);
+        } else if (car->mode == CAR_MODE_GYRO && hero_gimbal.yaw.key_yaw_ff_valid) {
+            *rotate = hero_gimbal.yaw.key_yaw_ff_channel;
         } else {
             *rotate = 0;
         }
