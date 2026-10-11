@@ -43,7 +43,7 @@ void DEVICE_Init(void)
     KT_Yaw_Init();
 
     /* 初始化裁判状态，独立记录功率上限和缓冲帧的接收时间。 */
-    My_Judge_Init();
+    //My_Judge_Init();
 
     cap.init(&cap);
 }

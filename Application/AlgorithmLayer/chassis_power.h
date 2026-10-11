@@ -28,14 +28,14 @@ typedef struct {
 } ChassisPowerInput_t;
 
 typedef struct {
-    /* 可调参数：功率 W，能量 J，时间 ms，转速 RPM，电流 CAN raw。 */
-    float training_limit_w; /* 默认 0 禁用；正值启用训练回退，不覆盖裁判上限。 */
+    /* 可调参数：功率 W，能量 J，时间 ms，转速 RPM，电流 CAN raw */
+    float training_limit_w; /* 默认 0 禁用。*/
     float margin_w;
     float buffer_target_j;
-    float buffer_kp; /* W/J；缓冲充足时也不增加基础预算。 */
+    float buffer_kp; /* W/J；缓冲充足时也不增加基础预算 */
     float buffer_recovery_w_per_s;
     float measured_warning_margin_w;
-    float measured_soft_kp; /* W/W，警戒区的非累积修正。 */
+    float measured_soft_kp; //警戒区
     float measured_soft_max_w;
     float measured_integral_gain_per_s; /* 1/s，按新帧实际间隔积累超额偏差。 */
     float measured_recovery_w_per_s;
@@ -44,7 +44,7 @@ typedef struct {
     float buffer_drop_threshold_j; /* 仅用于观察提示，不直接限流。 */
     uint32_t limit_timeout_ms, buffer_timeout_ms, cap_timeout_ms;
     uint32_t recovery_hold_ms; /* 三路反馈有效、功率有余量且缓冲满或上升的持续确认时间。 */
-    float k_i2, k_iw, k_w2, k_const; /* 每轮 I²、I×RPM、RPM²、常数项系数；I 为 CAN raw，需实车标定。 */
+    float k_i2, k_iw, k_w2, k_const; /* 每轮 I²、I×RPM、RPM²、常数项系数；I 为 CAN raw。*/
 
     /* 自动更新的状态与观察量。 */
     float judge_limit_w, last_valid_limit_w; /* 历史有效上限在反馈过期后仍保留。 */

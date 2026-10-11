@@ -22,21 +22,15 @@ Car_t hero_car;
 /** @brief 打弹冷却计数阈值：300 * 2ms = 0.6秒，防止连续打弹过快 */
 #define SHOOT_COOLDOWN_TICKS     300
 
-/** @brief 拨杆 s1 停稳判定阈值：50 * 2ms = 100ms ≈ 7 个 DBUS 帧。
-  *        拨杆电平只在 ~14ms 一帧的 DBUS 帧里变，慢拨过中位可能采到 3~5 帧，
-  *        100ms 从容盖住；真正发射时 s1 本来就停着不动，对正常手感零延迟。 */
+/** @brief 拨杆 s1 停稳判定阈值：50 * 2ms = 100ms*/
 #define SW_STABLE_TICKS          50
 
-/** @brief 拨杆 s2 停稳判定阈值：15 * 2ms = 30ms ≈ 4 个 DBUS 帧。
-  *        连发装配前额外要求 s2 也停稳：进键鼠是两根拨杆先后拨到下位，
-  *        s2 先动会先来一帧 (S1中, S2下)——这一帧是线上真实值，不是撕裂，
-  *        单靠 s1 停稳拦不住（s1 还停在中位没动，计数一直在涨）。
-  *        30ms 足够盖住「s2 领先 s1 一两帧」这个最常见错位，对真正按住连发的
-  *        操作几乎无感。单发不受这道闸——单发本来就是拨一下就走的短促动作。 */
+/** @brief 拨杆 s2 停稳判定阈值：15 * 2ms = 30ms */
 #define SW2_STABLE_TICKS         15
 
 /* 打弹冷却计数器（遥控器 / 键鼠共用一把闸，保证换输入源不绕过 0.6s 冷却） */
 static uint16_t shoot_cnt = SHOOT_COOLDOWN_TICKS;
+
 
 /* Ctrl 电平快照与下降沿：Car_Control_Update 每拍在关中断块里取一次，
    Car_Chassis_Channel_Get 用同一份读数。底盘通道函数在 2ms 环末尾才跑，
@@ -45,6 +39,8 @@ static uint16_t shoot_cnt = SHOOT_COOLDOWN_TICKS;
    预充电的 WASD 计数当拍就折算成满速。 */
 static uint8_t ctrl_val_snap = 0;
 static bool    ctrl_fall_edge = false;
+
+
 
 /* ========================================================================= */
 /*                           内部工具函数：边沿检测                           */
@@ -305,12 +301,12 @@ static bool Car_R_Turn_Edge(void) {
   *
   */
 static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1, uint8_t s2, bool s1_stable, bool s2_stable) {
-    /* --- 1. 摩擦轮开关控制：S1中 + S2中 + 拨轮向上--- */
+    /* --- 摩擦轮开关控制：S1中 + S2中 + 拨轮向上--- */
     if (s1 == 3 && s2 == 3 && tb_up) {
         car->flags.is_shoot_system_on = !car->flags.is_shoot_system_on;  //翻转切换开/关
     }
 
-    /* --- 2. 发射逻辑（单发 / 手动打）--- */
+    /* --- 发射逻辑（单发 / 手动打）--- */
 
     car->flags.is_single_shoot_cmd = false; //！！每次循环先清除单发指令，只在满足条件时置位
 
@@ -333,18 +329,8 @@ static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1, uint8_t s2
         return;
     }
 
-    /*
-     * - 连发：S1中 + S2下，按住持续出弹。额外要求 S2 停稳：
-     *   进键鼠时两根拨杆先后拨到下位，S2 先动会先来一帧 (中, 下)，
-     *   不闸住就走火一发。真正连发是按住不动，30ms 停稳窗几乎无感。
-     * - 单发：S2 从非上位拨到上位的上升沿出一发。
-     *   必须回中（s2=3）再拨上来才有下一发——真单发。
-     *   单发不受 S2 停稳闸限制——它本来就是拨一下就走的短促动作。
-     *
-     *   旧的 0.6s 冷却逻辑注释掉保留：它让「拨一下按住」看起来像慢速连发，
-     *   感受不出单发效果。真要恢复冷却再取消注释（shoot_cnt 的递增和复位
-     *   还在跑，键鼠分支仍在用）。
-     */
+    /*---------- 连发：S1中 + S2下，按住持续出弹。额外要求 S2 停稳--------*/
+
     // if (s2 == RC_SW_UP && shoot_cnt >= SHOOT_COOLDOWN_TICKS) {
     //     car->flags.is_single_shoot_cmd = true;   /* 发出单发指令 */
     //     shoot_cnt = 0;                           /* 重置冷却计数器 */
@@ -361,27 +347,18 @@ static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1, uint8_t s2
     s2_last = s2;  /* 每拍都更新，不管走没走单发分支 */
 }
 
-/**
-  * @brief  键鼠模式下的发射动作指令处理
-  *          绑定：
-  *          - 鼠标左键 : 摩擦轮关着 -> 先开摩擦轮（不打弹，防止冷轮打弹卡弹）
-  *                       摩擦轮开着 -> 单发（0.6s 冷却，冷却内忽略）
-  *          - B        : 关闭发射系统（边沿触发，关了才安全）
-  *          - 连发     : 键鼠一律不给，防误触
-  *
-  * @param  car : 整车状态机对象指针
-  * @retval None
-  */
+
+
+/*==========键鼠模式下的发射动作指令处理======*/
+
 static void Car_Key_Action_Cmd_Update(Car_t *car) {
-    /* 每次循环先清单发指令，只在满足条件时置位（与遥控器分支同一套习惯） */
+    /* 每次循环先清单发指令，只在满足条件时置位 */
     car->flags.is_single_shoot_cmd = false;
 
     /* 键鼠不给连发，彻底断掉走火通路 */
     car->flags.is_continuous_shoot = false;
 
-    /* B：关闭发射系统（上升沿/下降沿都行，这里用「刚按下」）。
-       关掉当拍直接返回，不给左键复活的机会 —— 否则同一拍里
-       左键「刚按下」又把摩擦轮打开，紧急关闭被静默撤销。 */
+    /* B：关闭发射系统 */
     if (rc_sensor.info->B.status == release_to_press) {
         car->flags.is_shoot_system_on = false;
         shoot_cnt = SHOOT_COOLDOWN_TICKS;
@@ -585,10 +562,7 @@ void Car_Control_Update(Car_t *car) {
         Car_Key_Mode_Switch_Update(car);
         Car_Key_Action_Cmd_Update(car);
 
-        /* 键鼠换头：R 刚按下（真边沿，见 Car_R_Turn_Edge）。
-           F/G/V 已占用模式，R 专用于换头。只在 MECH 生效。
-           Car_R_Turn_Edge() 必须无条件求值（短路放前面），
-           否则 GYRO 下 prev 陈旧，切回 MECH 会误出边沿。 */
+        /* 键鼠换头：R 刚按下 */
         if (Car_R_Turn_Edge() && car->mode == CAR_MODE_MECH) {
             car->flags.is_turn_cmd = true;
         }
@@ -596,9 +570,7 @@ void Car_Control_Update(Car_t *car) {
         Car_Mode_Switch_Update(car, tb_up, tb_dn, s1, s2);
         Car_Action_Cmd_Update(car, tb_up, s1, s2, s1_stable, s2_stable);
 
-        /* 遥控换头：S1上 + S2上 + 拨轮上（tb_up 本身是单拍边沿）。
-           与模式矩阵不冲突：矩阵用 s2=中/下，摩擦轮用 s1=中。
-           只在 MECH 生效。 */
+        /* 遥控换头 */
         if (s1 == RC_SW_UP && s2 == RC_SW_UP && tb_up &&
             car->mode == CAR_MODE_MECH) {
             car->flags.is_turn_cmd = true;

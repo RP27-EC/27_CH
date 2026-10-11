@@ -39,7 +39,7 @@ void Chassis_Mecanum_Calculate(float vx, float vy, float wz,
         return;
     }
 
-    /* 参数校验：最大转速无效时，清零所有输出并返回 */
+    /* 参数校验：最大转速无效时，清零所有输出！！！！！并返回 */
     if (max_rpm <= 0.0f) {
         for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
             wheel_rpm[i] = 0.0f;
@@ -62,7 +62,7 @@ void Chassis_Mecanum_Calculate(float vx, float vy, float wz,
      * 确保相对运动方向不变，同时不超过电机能力上限。
      *==========================================================================*/
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
-        const float magnitude = fabsf(wheel_rpm[i]);
+        const float magnitude = fabsf(wheel_rpm[i]);//const 确保只读避免后续被修改（功能上等价不加）
         if (magnitude > max_abs) {
             max_abs = magnitude;
         }

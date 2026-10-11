@@ -73,8 +73,8 @@ static void ClearYawPids(Gimbal_t *gimbal) {
 
 
 void Gimbal_Init(Gimbal_t *gimbal) {
-    gimbal->yaw.chassis_fow_rads = 0.65f;
-    gimbal->yaw.key_yaw_ff_gain = 1.0f;
+    gimbal->yaw.chassis_fow_rads = 0.85f;//0.65往上调
+    gimbal->yaw.key_yaw_ff_gain = 5.0f;
     gimbal->yaw.key_yaw_speed_rads = 0.0f;
     gimbal->yaw.key_yaw_ff_channel = 0;
     gimbal->yaw.key_yaw_ff_last_seq = 0U;
@@ -105,7 +105,7 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.mec_angle_pid.a = 1.0f;
     gimbal->yaw.mec_speed_pid.kp = 900.0f;
     gimbal->yaw.mec_speed_pid.ki = 0.0f;
-    gimbal->yaw.mec_speed_pid.kd = 0.0f;//here
+    gimbal->yaw.mec_speed_pid.kd = 20.0f;//here
     gimbal->yaw.mec_speed_pid.out_max = 2000.0f;//限幅已经修改成正常落地，调试用200
     gimbal->yaw.mec_speed_pid.integral_max = 400.0f;
     gimbal->yaw.mec_speed_pid.a = 0.2f;

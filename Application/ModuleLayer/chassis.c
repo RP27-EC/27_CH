@@ -9,7 +9,7 @@
   */
 
 #include "chassis.h"
-#include "chassis_power.h"
+//#include "chassis_power.h"
 
 #include "chassis_kinematics.h"  /* 麦轮运动学解算模块 */
 #include "chassis_motor.h"       /* 底盘电机驱动模块 */
@@ -86,7 +86,7 @@ float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
     float err_eff;
     float wz_norm;
 
-    /* 夹角很小时不跟转，避免车头在目标附近来回抖动。 */
+    /* 夹角很小时不跟转，避免车头在目标附近来回抖动，tip这个视情况看是否取消 */
     if (fabsf(delta_angle) < CHASSIS_FOLLOW_DEADZONE) {
         return 0.0f;
     }
@@ -109,7 +109,7 @@ float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
 void Chassis_Stop(void)
 {
     Chassis_Reset_Yaw_Feedforward();
-    Chassis_Power_Clear_Output();
+    //Chassis_Power_Clear_Output();
     /* 遍历四个轮子，逐个清零PID控制器和电机输出 */
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
         pid_ctrl_t *speed_pid = Chassis_Motor[i].ctrl->speed_ctrl;
@@ -139,7 +139,7 @@ void Chassis_Stop(void)
 
 void Chassis_Init(void)
 {
-    Chassis_Power_Init();
+    //Chassis_Power_Init();
     Chassis_Stop();  /* 初始化时先停止底盘，确保安全 */
 }
 
@@ -270,7 +270,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     }
 
     /* 四轮 PID 已完成；功率限制必须在最终电流转换和 CAN 发送之前。 */
-    Chassis_Power_Apply();
+    //Chassis_Power_Apply();
 
     /* 一次CAN帧发送4个电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);

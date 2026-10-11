@@ -15,7 +15,7 @@
 typedef enum {
     CAR_MODE_SLEEP = 0,     /* 休眠/关控保护模式 */
     CAR_MODE_INIT,          /* 上电复位对齐模式 */
-    CAR_MODE_GYRO,          /* 陀螺仪跟随模式 (默认主力模式) */
+    CAR_MODE_GYRO,          /* 陀螺仪跟随模式 */
     CAR_MODE_MECH,          /* 机械模式 (底盘与云台就近锁轴：0°或180°) */
     CAR_MODE_SPIN,          /* 小陀螺自旋模式 */
 } CarMode_e;
@@ -28,19 +28,20 @@ typedef enum {
     ALIGN_BACK  = 1,        /* 近车尾：对齐 180° */
 } AlignDir_e;
 
-/* 输入源枚举：底盘/云台/发射读哪一套指令
-   键盘鼠标经 DR16 同一帧送上来（key_v 在 rxBuf[14..15]），与摇杆不冲突，
-   这里只做「操作手现在用哪套」的标记，供后续键鼠控制分流用 */
+
+/* 输入源枚举 */
 typedef enum {
     INPUT_SRC_RC = 0,       /* 遥控器摇杆 */
     INPUT_SRC_KEY,          /* 键盘鼠标 */
 } InputSrc_e;
+
 
 /* 复位状态枚举 */
 typedef enum {
     RESET_PENDING = 0,      /* 正在复位 */
     RESET_DONE,             /* 复位完成 */
 } ResetState_e;
+
 
 /* 整车控制标志位集合 */
 typedef struct {
@@ -49,6 +50,7 @@ typedef struct {
     bool is_continuous_shoot;   /* 连发标志（拨弹持续转动） */
     bool is_turn_cmd;           /* 换头/掉头脉冲：MECH 粘性锁轴翻转，仅 MECH 置位 */
 } CarFlags_t;
+
 
 /* 整车总控对象 */
 typedef struct {
