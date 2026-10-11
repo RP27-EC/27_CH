@@ -19,7 +19,7 @@ void Chassis_Power_Apply(void) {
     uint32_t now_ms = HAL_GetTick(); /* 取得本次计算的当前时间，单位 ms。 */
     input.limit_received = My_Judge.status->limit_received; /* 是否曾收到有效功率上限；不能只看数值猜是否收到。 */
     input.limit_seq = My_Judge.status->limit_rx_count; /* 上限帧接收序号，算法用它识别新帧。 */
-    input.limit_ms = My_Judge.status->limit_update_ms; /* 上限帧更新时间，算法用它判断过期。 */
+    input.limit_ms = My_Judge.status->limit_update_ms;
     input.limit_w = (float)My_Judge.org_info->game_robot_status.chassis_power_limit; /* 裁判允许的底盘功率，W。 */
     input.buffer_received = My_Judge.status->buffer_received; /* 是否收到过缓冲能量；真实 0 J 也算收到。 */
     input.buffer_seq = My_Judge.status->buffer_rx_count; /* 缓冲帧序号，避免同一帧每 2 ms 被重复处理。 */
