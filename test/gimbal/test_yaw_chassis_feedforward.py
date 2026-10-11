@@ -5,7 +5,9 @@ import test_yaw_derivative as fixture
 
 
 class YawChassisFeedforwardTest(unittest.TestCase):
-    run_case = fixture.YawDerivativeTest.run_case
+    def run_case(self, body):
+        # Exercise the specified gains independently of the robot's tuned default.
+        fixture.YawDerivativeTest.run_case(self, 'g.yaw.chassis_fow_rads=1.0f;\n' + body)
 
     def test_aligned_turret_tracks_chassis_without_angle_error(self):
         self.run_case(r'''

@@ -2,6 +2,7 @@
 #define __CAP_PROTOCOL_H
 
 #include "main.h"
+#include <stdbool.h>
 
 /* 超电板 CAN 帧 ID（自定义协议，定制固件，帧布局不可改动） */
 #define CAP_RX_ID  (0x211U)  /* 超电板 -> 下层板：功率/电压/电流/能力 */
@@ -51,6 +52,8 @@ typedef struct
 	uint16_t offline_cnt_max;
 	uint8_t status;
 	uint16_t offline_cnt;
+    volatile bool power_received;
+    volatile uint32_t power_rx_count, power_update_ms;
 }cap_status_t;
 
 typedef struct cap_struct_t

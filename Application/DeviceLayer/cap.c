@@ -55,6 +55,8 @@ void Cap_Init(cap_t* my_cap)
 	   必须显式置离线，否则没接超电板时功率放宽逻辑会被假电压骗开 */
 	my_cap->status->offline_cnt = my_cap->status->offline_cnt_max;
 	my_cap->status->status = DEV_OFFLINE;
+    my_cap->status->power_received = false;
+    my_cap->status->power_rx_count = my_cap->status->power_update_ms = 0U;
 
 	/* 绑定电容数据更新回调函数，当收到CAN数据时调用 */
 	my_cap->rx = cap_update;

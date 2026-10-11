@@ -33,7 +33,23 @@ def harness():
 #include <stdlib.h>
 #define PI 3.14159265358979323846f
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);exit(1);}}while(0)
-''' + read('Application/ControlLayer/car_control.h') + read('Application/AlgorithmLayer/PID.h') + strip_includes(read('Application/ModuleLayer/gimbal.h')) + strip_includes(read('Application/ModuleLayer/chassis.h')) + read('Application/ModuleLayer/chassis_kinematics.h') + '\n'.join(re.findall(r'^#define CHASSIS_(?:FL|FR|BL|BR)_DIRECTION[^\n]*', read('Application/DeviceLayer/chassis_motor.h'), re.M)) + '\n' + '\n'.join(re.findall(r'^#define KEY_[WAQ]_CNT_MAX[^\n]*', read('Application/DeviceLayer/Sensor/rc_sensor.h'), re.M)) + r'''
+''' + read('Application/ControlLayer/car_control.h') + read('Application/AlgorithmLayer/PID.h') + strip_includes(read('Application/ModuleLayer/gimbal.h')) + strip_includes(read('Application/ModuleLayer/chassis.h')) + read('Application/ModuleLayer/chassis_kinematics.h') + read('Application/AlgorithmLayer/chassis_power.h') + '\n'.join(re.findall(r'^#define CHASSIS_(?:FL|FR|BL|BR)_DIRECTION[^\n]*', read('Application/DeviceLayer/chassis_motor.h'), re.M)) + '\n' + '\n'.join(re.findall(r'^#define KEY_[WAQ]_CNT_MAX[^\n]*', read('Application/DeviceLayer/Sensor/rc_sensor.h'), re.M)) + r'''
+#include <string.h>
+static uint32_t tick;
+static uint32_t HAL_GetTick(void){return tick;}
+static uint32_t __get_PRIMASK(void){return 0;}
+static void __disable_irq(void){}
+static void __set_PRIMASK(uint32_t x){(void)x;}
+struct {
+    struct {struct {uint16_t chassis_power_limit;} game_robot_status;
+            struct {uint16_t chassis_power_buffer;} power_heat_data;} *org_info;
+    struct {bool limit_received,buffer_received;
+            uint32_t limit_rx_count,limit_update_ms,buffer_rx_count,buffer_update_ms;} *status;
+} My_Judge;
+struct {
+    struct {int16_t chassis_power;} *info;
+    struct {bool power_received;uint32_t power_rx_count,power_update_ms;} *status;
+} cap;
 struct Key {int cnt;};
 struct Rc {struct Key W,A,S,D,Q,E;int16_t ch0,ch2,ch3;} rc;
 struct {struct Rc *info;} rc_sensor={&rc};
@@ -43,24 +59,31 @@ typedef struct Motor Motor;
 struct Motor {
     struct {pid_ctrl_t *speed_ctrl;} *ctrl;
     struct {float torque,torque_current;int16_t torque_current_raw;} *tx_info;
+    struct {int16_t encoder_speed;} *rx_info;
     void (*single_set_speed)(Motor *);
 };
 static pid_ctrl_t wheel_pid[4];
 static Motor Chassis_Motor[4];
 struct Group {void (*group_set_torque)(struct Group *);};
 static struct Group Chassis_Motor_Group;
-static void group_send(struct Group *g){(void)g;}
+static float sent_current[4];
+static void group_send(struct Group *g){(void)g;for(int i=0;i<4;i++)sent_current[i]=Chassis_Motor[i].tx_info->torque;}
 void pid_clear(pid_ctrl_t *p){*p=(pid_ctrl_t){0};}
-static void motor_set_speed(Motor *m){(void)m;}
-''' + strip_includes(read('Application/ModuleLayer/chassis_kinematics.c')) + strip_includes(read('Application/ModuleLayer/chassis.c')) + function(read('Application/ControlLayer/carctrl.c'), 'void Car_Chassis_Channel_Get(') + '\nstatic void update_alignment(Gimbal_t *gimbal,CarMode_e car_mode){\n' + gimbal[start:end] + '\n}\n' + function(gimbal, 'static void Gimbal_Mech_Update(') + r'''
+static void motor_set_speed(Motor *m){m->tx_info->torque=m->ctrl->speed_ctrl->target*3;}
+''' + strip_includes(read('Application/AlgorithmLayer/chassis_power.c')) + strip_includes(read('Application/ModuleLayer/chassis_power_adapter.c')) + strip_includes(read('Application/ModuleLayer/chassis_kinematics.c')) + strip_includes(read('Application/ModuleLayer/chassis.c')) + function(read('Application/ControlLayer/carctrl.c'), 'void Car_Chassis_Channel_Get(') + '\nstatic void update_alignment(Gimbal_t *gimbal,CarMode_e car_mode){\n' + gimbal[start:end] + '\n}\n' + function(gimbal, 'static void Gimbal_Mech_Update(') + r'''
 static void setup(void){
+    My_Judge.org_info=calloc(1,sizeof(*My_Judge.org_info));
+    My_Judge.status=calloc(1,sizeof(*My_Judge.status));
+    cap.info=calloc(1,sizeof(*cap.info));cap.status=calloc(1,sizeof(*cap.status));
     Chassis_Motor_Group.group_set_torque=group_send;
     for(int i=0;i<4;i++){
         Chassis_Motor[i].ctrl=calloc(1,sizeof(*Chassis_Motor[i].ctrl));
         Chassis_Motor[i].tx_info=calloc(1,sizeof(*Chassis_Motor[i].tx_info));
+        Chassis_Motor[i].rx_info=calloc(1,sizeof(*Chassis_Motor[i].rx_info));
         Chassis_Motor[i].ctrl->speed_ctrl=&wheel_pid[i];
         Chassis_Motor[i].single_set_speed=motor_set_speed;
     }
+    Chassis_Power_Init();
 }
 static void near(float a,float b){CHECK(fabsf(a-b)<.001f);}
 '''

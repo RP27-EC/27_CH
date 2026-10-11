@@ -1270,6 +1270,21 @@
           <GroupName>Algorithm</GroupName>
           <Files>
             <File>
+              <FileName>chassis_power.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\AlgorithmLayer\chassis_power.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_power.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\AlgorithmLayer\chassis_power.h</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_power_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\ModuleLayer\chassis_power_adapter.c</FilePath>
+            </File>
+            <File>
               <FileName>algo.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\AlgorithmLayer\algo.c</FilePath>

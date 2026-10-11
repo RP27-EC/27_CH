@@ -25,6 +25,7 @@
 #include "gimbal_motor.h"
 #include "kt_yaw_motor.h"
 #include "cap.h"
+#include "judge.h"
 
 /**
   * @brief  监控任务主函数
@@ -52,11 +53,11 @@ void StartMonitorTask(void const * argument)
         /* KT9025 Yaw电机心跳检测：检查CAN通信是否正常 */
         KT_Yaw_Heartbeat();
 
-        /* 裁判系统已停用（不做功率限制、不读裁判数据），心跳刷新注释掉 */
-        // My_Judge_Realtime_Task(&My_Judge);
+        /* 裁判掉线只更新状态，保留最后有效上限、缓冲与接收时间。 */
+        My_Judge_Realtime_Task(&My_Judge);
 
         /* 超级电容心跳检测：300ms 收不到 0x211 判离线。
-           超电当前为只读调试：heartbeat 只维护 cap.status，控制路径不消费 */
+           超电只读功率反馈；预算有效性使用独立的接收时间。 */
         cap.heartbeat(&cap);
 
         /* 等待1ms，让出CPU给其他任务 */

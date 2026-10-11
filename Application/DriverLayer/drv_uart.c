@@ -85,7 +85,7 @@ __WEAK void USART9_rxDataHandler(uint8_t *rxBuf);   /* 串口9数据处理 */
 __WEAK void USART8_rxDataHandler(uint8_t *rxBuf);   /* 串口8数据处理 */
 __WEAK void USART7_rxDataHandler(uint8_t *rxBuf);   /* 串口7数据处理 */
 __WEAK void USART5_rxDataHandler(uint8_t *rxBuf);   /* 串口5数据处理（遥控器） */
-__WEAK void USART1_rxDataHandler(uint8_t *rxBuf);   /* 串口1数据处理 */
+__WEAK void USART1_rxDataHandler(const uint8_t *rxBuf, uint16_t length);   /* 串口1数据处理 */
 
 /**
  * @brief DMA启动传输函数（内部使用）
@@ -245,19 +245,28 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef * huart, uint16_t Size)
  * @brief  HAL库UART错误回调函数（重写）
  * @param  huart: 发生错误的UART句柄指针
  * @retval 无
- * @note   仅在UART5使用HAL TOIDLE DMA模式时启用
- *         发生错误时重启接收，保证遥控器通信的鲁棒性
+ * @note   USART1 错误后中止接收并重启 DMA；UART5 保留 TOIDLE 恢复路径。
  */
-#if UART5_RC_USE_HAL_TOIDLE_DMA
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-  if(huart->Instance == UART5)
+  if (huart == &huart1)
+  {
+    /* 错误帧不提交；恢复 DMA，后续裁判帧由 CRC 重新同步。 */
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_TC | DMA_IT_HT | DMA_IT_TE | DMA_IT_DME);
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_FE);
+    /* DME 可能已把 UART 置 READY，但 DMA 仍 BUSY；按 DMAR 中止接收。 */
+    HAL_UART_AbortReceive(huart);
+    __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_PEF | UART_CLEAR_FEF | UART_CLEAR_IDLEF);
+    HAL_UART_Receive_DMA(huart, usart1_dma_rxbuf, USART1_RX_BUF_LEN);
+  }
+#if UART5_RC_USE_HAL_TOIDLE_DMA
+  else if(huart->Instance == UART5)
   {
     /* 发生错误后重启UART5接收 */
     uart5_rc_start_receive();
   }
-}
 #endif
+}
 
 /**
  * @brief  UART DMA双缓冲区初始化函数（内部使用）
@@ -338,6 +347,16 @@ void USART5_Init(void)
  * @retval 无
  * @note   使能IDLE中断，启动DMA接收
  */
+/* Normal-mode USART1 DMA completion handles chunks with no idle gap. */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart == &huart1)
+  {
+    USART1_rxDataHandler(usart1_dma_rxbuf, USART1_RX_BUF_LEN);
+    HAL_UART_Receive_DMA(huart, usart1_dma_rxbuf, USART1_RX_BUF_LEN);
+  }
+}
+
 void USART1_Init(void)
 {
   /* 使能UART空闲中断 */
@@ -414,7 +433,7 @@ void USART9_Init(void)
  * @param  huart: 触发空闲中断的UART句柄指针
  * @retval 无
  * @note   当串口接收完一帧数据后进入空闲状态时触发
- *         处理流程：清除空闲标志 -> 停止DMA -> 重启DMA -> 调用数据处理函数
+ *         USART1：清除空闲标志 -> 停止DMA -> 解析实际长度 -> 重启DMA
  *         根据不同的UART实例分别调用对应的rxDataHandler
  */
 static void uart_rx_idle_callback(UART_HandleTypeDef* huart)
@@ -438,16 +457,20 @@ static void uart_rx_idle_callback(UART_HandleTypeDef* huart)
   /* ====== USART1 处理 ====== */
   else if (huart == &huart1)
   {
-    /* 停止DMA传输 */
+    uint16_t received;
+    /* Clearing EN may generate TC: mask callbacks before stopping the stream.
+     * USART1 DMA IRQ has higher priority than UART IDLE; never let TC restart
+     * reception or reenter the parser while this short chunk is being handled. */
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_TC | DMA_IT_HT | DMA_IT_TE | DMA_IT_DME);
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_FE);
+    /* Stop hardware before sampling NDTR; DMAStop also restores HAL RxState. */
     __HAL_DMA_DISABLE(huart->hdmarx);
-    /* 重新启动DMA接收 */
-    HAL_UART_Receive_DMA(&huart1, usart1_dma_rxbuf, USART1_RX_BUF_LEN);
-    /* 调用串口1数据处理函数 */
-    USART1_rxDataHandler(usart1_dma_rxbuf);
-    /* 清零接收缓冲区（串口1需要清零） */
-    memset(usart1_dma_rxbuf, 0, USART1_RX_BUF_LEN);
-    /* 重启DMA使能 */
-    __HAL_DMA_ENABLE(huart->hdmarx);
+    while (((DMA_Stream_TypeDef *)huart->hdmarx->Instance)->CR & DMA_SxCR_EN) {}
+    received = USART1_RX_BUF_LEN - __HAL_DMA_GET_COUNTER(huart->hdmarx);
+    HAL_UART_DMAStop(huart);
+    if (received <= USART1_RX_BUF_LEN)
+      USART1_rxDataHandler(usart1_dma_rxbuf, received);
+    HAL_UART_Receive_DMA(huart, usart1_dma_rxbuf, USART1_RX_BUF_LEN);
   }
 
   /* ====== UART7 处理 ====== */
@@ -610,8 +633,10 @@ void WL_UART_printf(char *format, ...)
  * @note   需要在协议层(Protocol Layer)中重写
  *         实现USART1的具体数据解析逻辑
  */
-__WEAK void USART1_rxDataHandler(uint8_t *rxBuf)
+__WEAK void USART1_rxDataHandler(const uint8_t *rxBuf, uint16_t length)
 {
+  (void)rxBuf;
+  (void)length;
 }
 
 /**

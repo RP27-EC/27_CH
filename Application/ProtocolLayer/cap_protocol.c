@@ -67,6 +67,7 @@ void cap_send_2E(void)
   */
 void cap_update(cap_t* my_cap, uint8_t *rxBuf)
 {
+    if (my_cap == NULL || rxBuf == NULL || my_cap->info == NULL || my_cap->status == NULL) return;
     /* 将CAN原始数据拷贝到解析结构体中 */
     memcpy(&cap_rx_info, rxBuf, sizeof(cap_rx_info_t));
 
@@ -83,7 +84,11 @@ void cap_update(cap_t* my_cap, uint8_t *rxBuf)
     my_cap->info->ability = cap_rx_info.bit_state.ability;
 
     /* 收到有效数据，重置离线计数器（防止被判定为离线） */
-    cap.status->offline_cnt = 0;
+    my_cap->status->offline_cnt = 0;
+    my_cap->status->status = DEV_ONLINE;
+    my_cap->status->power_update_ms = HAL_GetTick();
+    my_cap->status->power_rx_count++;
+    my_cap->status->power_received = true;
 }
 
 /**

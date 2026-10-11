@@ -50,6 +50,10 @@ static unsigned int speed_calls[4];          /* 速度设置函数调用次数 *
 static unsigned int pid_clear_calls;         /* PID清除函数调用次数 */
 static unsigned int group_send_calls;        /* 组发送函数调用次数 */
 
+/* This fixture checks motion mapping. The real limiter/adapter is exercised
+ * independently by test_power_integration.py; do not limit this fake PID. */
+void Chassis_Power_Apply(void) {}
+
 /**
   * @brief  测试失败处理函数
   * @param  message: 错误信息

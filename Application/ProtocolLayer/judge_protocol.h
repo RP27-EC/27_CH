@@ -31,7 +31,7 @@ typedef struct
 
 extern drv_judge_info_t drv_judge_info;
 
-void judge_recive(uint8_t *rxBuf);
+void judge_recive(const uint8_t *rxBuf, uint16_t length);
 
 /********************from裁判系统串口协议附录V1.3的数据结构体********************/
 
@@ -270,7 +270,7 @@ enum
 	LEN_supply_projectile_action   	= 4,			//0x0102,//场地补给站动作标识数据
 	LEN_referee_warning					 		= 2,			//0x0104,//裁判警告数据，警告后发送
 	LEN_dart_remaining_time					= 1,			//0x0105,//飞镖发射口倒计时，1Hz
-	LEN_game_robot_state    				= 15,			//0x0201,//机器人状态数据，10Hz
+	LEN_game_robot_state    				= 13,			//0x0201,//机器人状态数据，10Hz
 	LEN_power_heat_data    					= 16,			//0x0202,//实时功率热量数据，50Hz
 	LEN_game_robot_pos        			= 16,			//0x0203,//机器人位置数据，10Hz
 	LEN_buff_musk										= 1,			//0x0204,//机器人增益数据，1Hz

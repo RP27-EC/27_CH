@@ -14,9 +14,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "judge.h"
-#include "imu_sensor.h"
-#include "cap.h"
-#include "drv_tick.h"
+#include <string.h>
 
 /* 裁判系统处理后的信息（供上层算法使用） */
 Judge_Info_t Judge_Info;
@@ -56,6 +54,10 @@ void My_Judge_Init()
 	/* 离线计数器设为最大值，初始判定为离线 */
 	My_Judge.status->offline_cnt = My_Judge.status->offline_cnt_max;
 	My_Judge.status->status = DEV_OFFLINE;
+	My_Judge.status->limit_received = false;
+	My_Judge.status->buffer_received = false;
+	My_Judge.status->limit_rx_count = My_Judge.status->limit_update_ms = 0;
+	My_Judge.status->buffer_rx_count = My_Judge.status->buffer_update_ms = 0;
 }
 
 /**
@@ -69,12 +71,13 @@ void My_Judge_Init()
 void My_Judge_Realtime_Task(My_Judge_t* my_judge)
 {
 	/* 离线计数器递增 */
-	my_judge->status->offline_cnt++;
+	if (my_judge->status->offline_cnt < my_judge->status->offline_cnt_max)
+		my_judge->status->offline_cnt++;
 
-	/* 超过离线阈值，重新初始化裁判系统 */
+	/* 超过离线阈值只标记掉线，保留最后有效数据。 */
 	if(my_judge->status->offline_cnt >= my_judge->status->offline_cnt_max)
 	{
-		My_Judge_Init();
+		my_judge->status->status = DEV_OFFLINE;
 	}
 
 	/* 更新处理后的数据 */
@@ -138,65 +141,44 @@ uint8_t warning;
   *          - ID_game_robot_HP: 机器人血量数据
   *          - ID_bullet_remaining: 弹丸剩余量
   */
-void judge_update(uint16_t id, uint8_t *rxBuf)
+/* Power metadata is independent: only a usable packet refreshes its own age. */
+void judge_update(uint16_t id, const uint8_t *rxBuf, uint16_t length)
 {
-	switch(id)
-	{
-		case ID_rfid_status:
-			/* RFID状态数据，用于触发地图上的特殊效果 */
-			memcpy(&My_Judge.org_info->rfid_status, rxBuf, LEN_rfid_status);
-			My_Judge.status->offline_cnt = 0;           /* 重置离线计数器 */
-			My_Judge.status->status = DEV_ONLINE;       /* 标记在线 */
-			break;
-
-		case ID_game_state:
-			/* 比赛状态数据（比赛阶段、剩余时间等） */
-			memcpy(&My_Judge.org_info->game_status, rxBuf, LEN_game_state);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		case ID_power_heat_data:
-			/* 功率和热量数据（底盘功率、枪管热量等） */
-			memcpy(&My_Judge.org_info->power_heat_data, rxBuf, LEN_power_heat_data);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		case ID_game_robot_state:
-			/* 机器人状态数据（血量、功率限制、冷却限制等） */
-			memcpy(&My_Judge.org_info->game_robot_status, rxBuf, LEN_game_robot_state);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		case ID_shoot_data:
-			/* 射击数据（弹丸编号、弹速等） */
-			memcpy(&My_Judge.org_info->shoot_data, rxBuf, LEN_shoot_data);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		case ID_game_robot_HP:
-			/* 机器人血量数据（自身和对手血量） */
-			memcpy(&My_Judge.org_info->ext_game_robot_HP, rxBuf, LEN_game_robot_HP);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		case ID_robot_hurt:
-			/* 机器人伤害数据（当前未启用） */
-			break;
-
-		case ID_bullet_remaining:
-			/* 弹丸剩余量数据 */
-			memcpy(&My_Judge.org_info->ext_bullet_remaining, rxBuf, LEN_bullet_remaining);
-			My_Judge.status->offline_cnt = 0;
-			My_Judge.status->status = DEV_ONLINE;
-			break;
-
-		default:
-			break;
-	}
+    void *destination = NULL;
+    uint16_t expected = 0;
+    if (rxBuf == NULL) return;
+    switch (id) {
+    case ID_game_robot_state:
+        if (length != 13u || (rxBuf[10] == 0 && rxBuf[11] == 0)) return;
+        memcpy(&My_Judge.org_info->game_robot_status, rxBuf, 13u);
+        My_Judge.status->limit_update_ms = HAL_GetTick();
+        My_Judge.status->limit_rx_count++;
+        My_Judge.status->limit_received = true;
+        break;
+    case ID_power_heat_data:
+        if (length == 16u) {
+            memcpy(&My_Judge.org_info->power_heat_data, rxBuf, 16u);
+        } else if (length == 14u) {
+            /* Modern frame has one 17mm heat and one 42mm heat. */
+            memcpy(&My_Judge.org_info->power_heat_data, rxBuf, 12u);
+            My_Judge.org_info->power_heat_data.shooter_id2_17mm_cooling_heat = 0;
+            memcpy(&My_Judge.org_info->power_heat_data.shooter_id1_42mm_cooling_heat, rxBuf + 12, 2u);
+        } else return;
+        My_Judge.status->buffer_update_ms = HAL_GetTick();
+        My_Judge.status->buffer_rx_count++;
+        My_Judge.status->buffer_received = true;
+        break;
+    case ID_rfid_status: destination = &My_Judge.org_info->rfid_status; expected = LEN_rfid_status; break;
+    case ID_game_state: destination = &My_Judge.org_info->game_status; expected = LEN_game_state; break;
+    case ID_shoot_data: destination = &My_Judge.org_info->shoot_data; expected = LEN_shoot_data; break;
+    case ID_game_robot_HP: destination = &My_Judge.org_info->ext_game_robot_HP; expected = LEN_game_robot_HP; break;
+    case ID_bullet_remaining: destination = &My_Judge.org_info->ext_bullet_remaining; expected = LEN_bullet_remaining; break;
+    default: return;
+    }
+    if (destination != NULL) {
+        if (length != expected) return;
+        memcpy(destination, rxBuf, expected);
+    }
+    My_Judge.status->offline_cnt = 0;
+    My_Judge.status->status = DEV_ONLINE;
 }
-

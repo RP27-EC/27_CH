@@ -4,6 +4,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
 #include "rp_config.h"
+#include <stdbool.h>
 #include "judge_protocol.h"
 /* Exported macro ------------------------------------------------------------*/
 #define JUDGE_OFFLINE_CNT_MAX 1000
@@ -44,6 +45,8 @@ typedef struct
 	uint16_t offline_cnt_max;
 	uint8_t status;
 	uint16_t offline_cnt;
+	volatile bool limit_received, buffer_received;
+	volatile uint32_t limit_rx_count, limit_update_ms, buffer_rx_count, buffer_update_ms;
 }Judge_Status_t;
 
 typedef struct
@@ -58,6 +61,6 @@ extern My_Judge_t My_Judge;
 void My_Judge_Init(void);
 void My_Judge_Realtime_Task(My_Judge_t* my_judge);
 void My_Judge_Update(My_Judge_t * my_judge);
-void judge_update(uint16_t id, uint8_t *rxBuf);
+void judge_update(uint16_t id, const uint8_t *rxBuf, uint16_t length);
 
 #endif
