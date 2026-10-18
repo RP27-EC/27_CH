@@ -9,11 +9,11 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "pid.h"
+#include "PID.h"
 
 /* GYRO 域 Pitch 目标静态限位 (rad)：IMU 世界域，标定后定死不再调。
  * 下板 gimbal.h 同名同值，改一处必须改两处。 */
-#define PITCH_MIN_IMU_ANGLE  (0.04f)
+#define PITCH_MIN_IMU_ANGLE  (-0.10f)
 #define PITCH_MAX_IMU_ANGLE  (0.70f)
 
 /* Pitch 执行与控制数据结构体 */

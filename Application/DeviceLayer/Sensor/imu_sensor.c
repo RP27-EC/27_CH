@@ -21,6 +21,7 @@
 #include "imu_sensor.h"     /* IMU 传感器头文件，包含 imu_sensor_t 结构体定义 */
 #include "drv_gpio.h"       /* GPIO 驱动，用于控制 IMU 电源等 */
 #include "drv_tick.h"       /* 系统 tick 驱动，提供 micros() 等时间函数 */
+#include <math.h>
 
 /* 条件编译：根据配置选择姿态解算算法 */
 #if IMU_USE_EKF == 1
@@ -337,11 +338,11 @@ void imu_update(imu_sensor_t *imu_sen)
              * 零偏有效性检查：如果零偏过大（>0.005），认为校准失败，清零
              * 正常情况下零偏应该很小
              */
-            if (abs(imu_info->offset_info.gx_offset) > 0.005f)
+            if (fabsf(imu_info->offset_info.gx_offset) > 0.005f)
                 imu_info->offset_info.gx_offset = 0;
-            if (abs(imu_info->offset_info.gy_offset) > 0.005f)
+            if (fabsf(imu_info->offset_info.gy_offset) > 0.005f)
                 imu_info->offset_info.gy_offset = 0;
-            if (abs(imu_info->offset_info.gz_offset) > 0.005f)
+            if (fabsf(imu_info->offset_info.gz_offset) > 0.005f)
                 imu_info->offset_info.gz_offset = 0;
 
 #if IMU_USE_EKF == 1

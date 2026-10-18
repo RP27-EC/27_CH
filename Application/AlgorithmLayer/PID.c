@@ -1,4 +1,4 @@
-#include "pid.h"
+#include "PID.h"
 #include "rp_math.h"  /* 引入限幅函数 constrain */
 #include <string.h>
 /*云台角度环防大回旋（最短路径算法）：

@@ -13,7 +13,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "rp_config.h"
-#include "pid.h"
+#include "PID.h"
 #include "drv_can.h"
 #include "motor_def.h"
 /* Exported typedef ----------------------------------------------------------*/

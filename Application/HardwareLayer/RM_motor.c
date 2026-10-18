@@ -30,8 +30,8 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "rm_motor.h"
-#include "pid.h"
+#include "RM_motor.h"
+#include "PID.h"
 #include "arm_math.h"
 #include "rp_math.h"
 static uint16_t CAN_01_GetMotorAngle(uint8_t *rxData);

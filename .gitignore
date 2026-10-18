@@ -11,3 +11,14 @@ __pycache__/
 *.iex
 *.dep
 *.lnp
+
+# Local build artifacts and debugger logs
+*.axf
+*.hex
+*.map
+*.log
+*.bak
+*.build_log.htm
+/MDK-ARM/JLinkLog.txt
+/MDK-ARM/My_C/*.htm
+/MDK-ARM/My_C/*.sct

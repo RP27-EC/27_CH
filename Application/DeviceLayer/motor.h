@@ -3,10 +3,10 @@
 
 #include "rp_config.h"
 #include "can_protocol.h"
-#include "rm_motor.h"
+#include "RM_motor.h"
 #include "KT_motor.h"
-#include "HT_motor.h"
-#include "DM_motor.h"
+#include "HT_Motor.h"
+#include "DM_Motor.h"
 #include "motor_def.h"
 #include "drv_can.h"
 

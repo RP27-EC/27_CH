@@ -7,7 +7,7 @@
 #include "gimbal.h"
 #include "board_comm.h"
 #include "imu_sensor.h"
-#include "dm_motor.h"         /* 达妙 J4310 电机驱动头文件 */
+#include "DM_Motor.h"         /* 达妙 J4310 电机驱动头文件 */
 #include <math.h>
 
 #define DEG_TO_RAD (0.01745329251994329577f)
@@ -109,7 +109,7 @@ void Gimbal_Init(void)
     gimbal.pitch.imu_speed = 0.0f;
     gimbal.pitch.use_imu = false;
     /* Feedback convention: up is positive, down is negative. */
-    gimbal.pitch.mec_min_rad = -18.0f * DEG_TO_RAD;
+    gimbal.pitch.mec_min_rad = -16.0f * DEG_TO_RAD;
     gimbal.pitch.mec_max_rad = 0.55f;   /* 机械上软限位：0.55 rad ≈ +31.5° */
     gimbal.pitch.give_torque = 0.0f;
 
