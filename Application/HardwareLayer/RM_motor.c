@@ -31,8 +31,8 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "rm_motor.h"
-#include "pid.h"         /* PID控制算法 */
+#include "RM_motor.h"
+#include "PID.h"         /* PID控制算法 */
 #include "arm_math.h"    /* ARM DSP数学库 */
 #include "rp_math.h"     /* 数学工具函数 */
 

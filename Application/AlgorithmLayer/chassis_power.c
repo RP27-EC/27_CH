@@ -1,327 +1,126 @@
-/* 功率限制算法阅读入口：
- * 1. Apply（adapter.c）取设备快照，调用 Update，再调用 Limit，最后写回电流。
- * 2. Update 只算允许多少 W，结果存在 chassis_power.target_power_w 中。
- * 3. Limit 读取这个预算，预测 PID 电流的功率，必要时共同缩小四轮电流。
- * 模型约束不等于实测每个瞬间都不超限
+/* 数据流：Apply 取快照 -> Update 计算预算 -> Limit 预测并缩放电流 -> CAN 下发。
+ * 预算只等于选定上限减裕量；缓冲和超电实测仅供观察，不参与预算。
  */
-
-/* 引入接口和数据类型；本文件只计算预算和限制电流，不发送 CAN。 */
 #include "chassis_power.h"
-
-/* 提供浮点限幅、有限数检查和 NAN。 */
 #include <math.h>
-/* 提供空指针常量 NULL。 */
 #include <stddef.h>
-/* 提供清零 memset 和复制 memcpy。 */
 #include <string.h>
 
-/* 全局对象：Update 写 target_power_w，Limit 从同一对象读它，两函数这样传递预算。 */
+/* AC6的默认std模式不保证NaN/Inf语义；异常保护需要本文件使用full模式。 */
+#if defined(__ARMCC_VERSION) && defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "Compile chassis_power.c with -ffp-mode=full so finite-value guards remain effective."
+#endif
+
 ChassisPower_t chassis_power;
 
-
-/* 私有历史数据，用于识别新帧、保存上限、计算时间差，其他文件不能直接访问。 */
 static struct {
-    
-    bool has_limit, seen_buffer, seen_cap, seen_update;/* 依次记录是否保存过上限、处理过缓冲、处理过超电功率、执行过预算更新。 */
-
-    bool budget_initialized, recovery_timing; /* 已建立首个预算；联合恢复条件是否正在计时。 */
-
-   
-    uint32_t limit_seq, buffer_seq, cap_seq; /* 已处理的三种反馈序号；序号不变表示还是同一帧。 */
-
-   
-    uint32_t buffer_ms, cap_ms, update_ms; /* 上次缓冲帧、功率帧和预算更新的时间，ms。 */
-
-    uint32_t recovery_ms; /* 本轮恢复确认的起点，ms，条件不满足时重新计时。 */
-
-    float buffer_j; /* 上次缓冲能量，J，用于求相邻帧下降量。 */
-
+    bool has_limit;
+    uint32_t limit_seq;
 } history;
 
-
-/* 小工具：将 x 限制在 lo 到 hi 范围内。 */
 static float Clamp(float x, float lo, float hi) {
     return fminf(hi, fmaxf(lo, x));
 }
 
-
-/* 长时间失联不能按失联时长一次性释放降额，恢复新帧最多计 100ms。 */
-/* 小工具：计算秒单位时间差，单次恢复最多按 0.1 s 计算。 */
-static float Sample_Dt(uint32_t now, uint32_t before, bool seen) {
-    /* 有历史则毫秒差乘 0.001 并封顶 0.1；首次取 0.1 s；无符号差值兼顾计时回绕。 */
-    return seen ? fminf((float)(uint32_t)(now - before) * .001f, .1f) : .1f;
-}
-
-/* 小工具：检查一个数有限且非负。 */
 static bool Nonnegative(float x) {
-    /* 排除 NaN、无穷大和负数；零对多数参数是允许值。 */
     return isfinite(x) && x >= 0.0f;
 }
 
-/* 新反馈帧的真实间隔，s；首次、重复时间戳、跨失联的未知时间不积分。 */
-static float Frame_Dt(uint32_t now, uint32_t before, bool seen, uint32_t timeout_ms) {
-    uint32_t gap = now - before; 
-    if (!seen || gap == 0U || gap > timeout_ms) return 0.0f; /* 无连续有效间隔就只重新建立基准。 */
-    return (float)gap * .001f; /* 在有效期内按实际间隔计时，不能封顶导致低帧率少积分。 */
-}
-
-
-/* Watch 参数必须有限非负；训练额度允许为零，表示不凭空假设裁判上限。 */
 static bool Budget_Config_Valid(void) {
-    return Nonnegative(chassis_power.training_limit_w) && /* 默认零合法，正值是显式训练回退。 */
-           Nonnegative(chassis_power.margin_w) && 
-           Nonnegative(chassis_power.buffer_target_j) && 
-           Nonnegative(chassis_power.buffer_kp) && /* 缓冲缺额换成降额的系数，W/J。 */
-           Nonnegative(chassis_power.buffer_recovery_w_per_s) && /* 缓冲降额最大释放速度，W/s。 */
-           Nonnegative(chassis_power.measured_warning_margin_w) && /* 提前干预区宽度，W。 */
-           Nonnegative(chassis_power.measured_soft_kp) && /* 提前修正比例，W/W。 */
-           Nonnegative(chassis_power.measured_soft_max_w) && /* 提前修正上限，W，不能无限累加。 */
-           Nonnegative(chassis_power.measured_integral_gain_per_s) && /* 超额偏差积分增益，1/s。 */
-           Nonnegative(chassis_power.measured_recovery_w_per_s) && /* 两项实测修正合计释放速度，W/s。 */
-           Nonnegative(chassis_power.measured_hysteresis_w) && /* 低于警戒值多少才允许恢复，W。 */
-           Nonnegative(chassis_power.budget_recovery_w_per_s) && /* 最终预算回升速度，W/s。 */
-           Nonnegative(chassis_power.buffer_drop_threshold_j); /* 下降提示阈值，J，仅观察。 */
+    return Nonnegative(chassis_power.training_limit_w) &&
+           Nonnegative(chassis_power.margin_w);
 }
 
-/* 只清本次限流观察量；保留参数、预算、历史降额，本函数不操作电机。 */
+/* 停车和每次限流前清输出观察量，不清预算、参数或设备反馈。 */
 void Chassis_Power_Clear_Output(void) {
-
     chassis_power.current_scale = 0.0f;
-    chassis_power.predicted_before_w = chassis_power.predicted_after_w = 0.0f;
+    chassis_power.predicted_before_w = 0.0f;
+    chassis_power.predicted_after_w = 0.0f;
     chassis_power.limiting_active = false;
-    chassis_power.model_fault = chassis_power.budget_unreachable = false;
+    chassis_power.model_fault = false;
+    chassis_power.budget_unreachable = false;
     memset(chassis_power.current_before, 0, sizeof(chassis_power.current_before));
     memset(chassis_power.current_after, 0, sizeof(chassis_power.current_after));
     memset(chassis_power.wheel_power_before_w, 0, sizeof(chassis_power.wheel_power_before_w));
     memset(chassis_power.wheel_power_after_w, 0, sizeof(chassis_power.wheel_power_after_w));
+    memset(chassis_power.target_rpm, 0, sizeof(chassis_power.target_rpm));
+    memset(chassis_power.actual_rpm, 0, sizeof(chassis_power.actual_rpm));
 }
 
-/* 上电初始化：尚未收到裁判上限时预算为零；参数与原始接收数据分开存储。 */
 void Chassis_Power_Init(void) {
-    memset(&chassis_power, 0, sizeof(chassis_power)); 
-    memset(&history, 0, sizeof(history)); 
-    chassis_power.training_limit_w = 0.0f; /* 默认禁用训练额度；离线调试需用户显式改为正值。 */
+    memset(&chassis_power, 0, sizeof(chassis_power));
+    memset(&history, 0, sizeof(history));
+    chassis_power.training_limit_w = 0.0f; /* 无裁判历史时的独立训练额度，默认禁用。 */
+    chassis_power.margin_w = 5.0f;  // 裁判上限减裕量，默认5W。实际预算 = max(0, 裁判上限 - 裕量)。
+    chassis_power.limit_timeout_ms = 500U;
+    chassis_power.buffer_timeout_ms = 500U; /* 后两项只影响观测有效标志。 */
+    chassis_power.cap_timeout_ms = 300U;
 
-    chassis_power.margin_w = 5.0f; 
-
-    chassis_power.buffer_target_j = 60.0f; /* 希望保持满缓冲；实际能量始终从裁判读取。 */
-
-    chassis_power.buffer_kp = 1.0f; /* 缓冲从 60 掉到 59 J，就要求降额 1 W。 */
-
-    chassis_power.buffer_recovery_w_per_s = 10.0f; /* 联合条件允许后，缓冲降额每秒最多释放 10 W。 */
-
-    chassis_power.measured_warning_margin_w = 2.0f; /* 基础预算 75 W 时从警戒值 73 W 起干预。 */
-
-    chassis_power.measured_soft_kp = 1.0f; /* 实测高于警戒值 1 W，提前修正目标增加 1 W。 */
-
-    chassis_power.measured_soft_max_w = 5.0f; /* 提前修正目标最多 5 W，不随帧数无限累加。 */
-
-    chassis_power.measured_integral_gain_per_s = 1.0f; /* 持续超基础预算时，按超额 W 乘实际秒数增长偏差。 */
-
-    chassis_power.measured_recovery_w_per_s = 1.0f; /* 提前项和偏差项共用每秒 1 W 的释放额度。 */
-
-    chassis_power.measured_hysteresis_w = 2.0f; /* 实测需低于警戒值减 2 W 才开始恢复确认。 */
-
-    chassis_power.budget_recovery_w_per_s = 20.0f; /* 后续最终预算上升最多 20 W/s；下降立即生效。 */
-
-    chassis_power.buffer_drop_threshold_j = .5f; /* 缓冲下降超过 0.5 J 时提示，不用单帧下降率直接限流。 */
-
-    chassis_power.limit_timeout_ms = 500U; /* 裁判上限有效期，过期保存最近真实接收值。 */
-    chassis_power.buffer_timeout_ms = 500U; /* 缓冲有效期，过期冻结已有降额。 */
-
-    chassis_power.cap_timeout_ms = 300U; /* 超电功率有效期，过期冻结已有实测修正。 */
-
-    chassis_power.recovery_hold_ms = 500U; /* 三路反馈满足条件持续 500 ms 才放开。 */
-
-    chassis_power.k_w2 = 3.0e-7f; /* 每轮 RPM 平方项系数，需本车实测标定。 */
-
-    chassis_power.k_i2 = 1.23e-7f; /* 每轮 CAN 原始电流平方项系数，原始值不是 A。 */
-
-    chassis_power.k_iw = 1.99688994e-6f; /* 每轮原始电流乘实际 RPM 项系数。 */
-
-    chassis_power.k_const = 4.081f; /* 每轮基础损耗项，W；四轮分别计入。 */
-
-    chassis_power.limit_source = CHASSIS_POWER_LIMIT_NONE; 
-    chassis_power.fallback_active = true; /* 尚无新鲜裁判上限，不把初始化零当作真实反馈。 */
+    /* 沿用原模型，I 为带符号的 CAN raw，n 为电机实际 RPM。 */
+    chassis_power.k_w2 = 3.0e-7f;
+    chassis_power.k_i2 = 1.23e-7f;
+    chassis_power.k_iw = 1.99688994e-6f;
+    chassis_power.k_const = 4.081f;
+    chassis_power.limit_source = CHASSIS_POWER_LIMIT_NONE;
+    chassis_power.fallback_active = true;
 }
 
-/* 步骤一：只计算允许多少 W，写全局 target_power_w；Apply/Limit 负责电流与发送。 */
+/* 上限新帧可更新历史；上限过期后保留最近有效值。
+ * 缓冲/实测掉线、能量下降或功率偏高，都不会额外扣减/锁住预算。
+ */
 void Chassis_Power_Update(const ChassisPowerInput_t *input, uint32_t now_ms) {
-    if (input == NULL) return;
-    float dt = Sample_Dt(now_ms, history.update_ms, history.seen_update); /* 控制更新间隔，s，回升最多按 0.1 s。 */
-    history.update_ms = now_ms; 
-    history.seen_update = true; /* 此后存在有效的更新时间基准。 */
-
-
-    chassis_power.limit_age_ms = input->limit_received ? now_ms - input->limit_ms : UINT32_MAX; /* 上限 */
-    chassis_power.buffer_age_ms = input->buffer_received ? now_ms - input->buffer_ms : UINT32_MAX; /* 缓冲 */
-    chassis_power.cap_age_ms = input->cap_received ? now_ms - input->cap_ms : UINT32_MAX; /* 功率 */
-
-    bool usable_limit = input->limit_received && isfinite(input->limit_w) && input->limit_w > 0.0f; 
-
-    if (usable_limit && (!history.has_limit || history.limit_seq != input->limit_seq)) { /* 只接纳新的可用上限帧。 */
-        history.has_limit = true; /* 一旦有真实上限，后续不能用训练额度覆盖它。 */
-        history.limit_seq = input->limit_seq; /* 保存已处理接收序号。 */
-        chassis_power.last_valid_limit_w = chassis_power.judge_limit_w = input->limit_w; /* 只复制实收值，不伪造反馈。 */
+    if (input == NULL) {
+        chassis_power.base_budget_w = 0.0f;
+        chassis_power.target_power_w = 0.0f;
+        chassis_power.config_fault = true;
+        return;
     }
 
+    chassis_power.limit_age_ms = input->limit_received ? now_ms - input->limit_ms : UINT32_MAX;
+    chassis_power.buffer_age_ms = input->buffer_received ? now_ms - input->buffer_ms : UINT32_MAX;
+    chassis_power.cap_age_ms = input->cap_received ? now_ms - input->cap_ms : UINT32_MAX;
 
-    chassis_power.judge_limit_valid = usable_limit && chassis_power.limit_age_ms <= chassis_power.limit_timeout_ms; 
-
+    chassis_power.judge_limit_valid = input->limit_received &&
+        isfinite(input->limit_w) && input->limit_w > 0.0f &&
+        chassis_power.limit_age_ms <= chassis_power.limit_timeout_ms;
     chassis_power.buffer_valid = input->buffer_received && Nonnegative(input->buffer_j) &&
-        chassis_power.buffer_age_ms <= chassis_power.buffer_timeout_ms; 
-
+        chassis_power.buffer_age_ms <= chassis_power.buffer_timeout_ms;
     chassis_power.cap_valid = input->cap_received && isfinite(input->cap_w) &&
-        chassis_power.cap_age_ms <= chassis_power.cap_timeout_ms; 
-
+        chassis_power.cap_age_ms <= chassis_power.cap_timeout_ms;
     chassis_power.fallback_active = !chassis_power.judge_limit_valid;
 
-
-    if (!chassis_power.buffer_valid) { /* 缓冲失联时不拿旧趋势允许恢复。 */
-        chassis_power.buffer_drop_detected = false; /* 清过期提示，不清已有缓冲降额。 */
-        chassis_power.buffer_recovering = false; /* 上升趋势必须由有效连续新帧证明。 */
+    if (chassis_power.judge_limit_valid &&
+        (!history.has_limit || history.limit_seq != input->limit_seq)) {
+        history.has_limit = true;
+        history.limit_seq = input->limit_seq;
+        chassis_power.last_valid_limit_w = input->limit_w;
+        chassis_power.judge_limit_w = input->limit_w;
     }
 
+    /* 保存实收值供 Watch 比较；数据过期时用 age/valid 区分旧值。 */
+    if (input->buffer_received && Nonnegative(input->buffer_j))
+        chassis_power.buffer_energy_j = input->buffer_j;
+    if (input->cap_received && isfinite(input->cap_w))
+        chassis_power.measured_power_w = input->cap_w;
 
-    chassis_power.config_fault = !Budget_Config_Valid(); /* Watch 参数非法时由 Limit 撤去驱动。 */
-    if (chassis_power.config_fault) { /* 不让非法参数放行 PID 大电流。 */
-        chassis_power.target_power_w = 0.0f; /* 将允许功率清零。 */
-        chassis_power.recovery_ready = false; /* 异常期间禁止恢复。 */
-        chassis_power.recovery_stable_ms = 0U; /* 清本轮确认时长。 */
-        history.recovery_timing = false; /* 参数恢复后重新确认，不能沿用异常前计时。 */
-        return; /* 结束本次预算计算。 */
+    float limit = 0.0f;
+    if (history.has_limit) {
+        limit = chassis_power.last_valid_limit_w;
+        chassis_power.limit_source = chassis_power.judge_limit_valid ?
+            CHASSIS_POWER_LIMIT_JUDGE : CHASSIS_POWER_LIMIT_HISTORY;
+    } else if (chassis_power.training_limit_w > 0.0f) {
+        limit = chassis_power.training_limit_w;
+        chassis_power.limit_source = CHASSIS_POWER_LIMIT_TRAINING;
+    } else {
+        chassis_power.limit_source = CHASSIS_POWER_LIMIT_NONE;
     }
 
-
-    float limit = 0.0f; /* 默认没有允许上限，不能凭空设成 80 W。 */
-
-    if (history.has_limit) { /* 已收到过真实可用上限。 */
-        limit = chassis_power.last_valid_limit_w; /* 过期仍用最近实收值，避免回退到更大的训练上限。 */
-        chassis_power.limit_source = chassis_power.judge_limit_valid ? CHASSIS_POWER_LIMIT_JUDGE : CHASSIS_POWER_LIMIT_HISTORY; /* 标明来源。 */
-    } else if (chassis_power.training_limit_w > 0.0f) { /* 只在用户显式设置正训练额度时启用。 */
-        
-        limit = chassis_power.training_limit_w; /* 训练参数不写入 judge_limit_w 或裁判接收结构体。 */
-        chassis_power.limit_source = CHASSIS_POWER_LIMIT_TRAINING; /* Watch 明示当前是离线训练。 */
-
-    } else { /* 无裁判值也无训练授权额度。 */
-        chassis_power.limit_source = CHASSIS_POWER_LIMIT_NONE; /* 后续预算为零。 */
-    }
-
-    chassis_power.base_budget_w = fmaxf(0.0f, limit - chassis_power.margin_w); /* 基础预算永远不超过依据的上限。 */
-    chassis_power.measured_warning_w = fmaxf(0.0f, chassis_power.base_budget_w - chassis_power.measured_warning_margin_w); /* 提前警戒值。 */
-
-    bool new_buffer = chassis_power.buffer_valid && (!history.seen_buffer || history.buffer_seq != input->buffer_seq); /* 缓冲新帧。 */
-    bool new_cap = chassis_power.cap_valid && (!history.seen_cap || history.cap_seq != input->cap_seq); /* 实测新帧。 */
-
-
-    float buffer_dt = new_buffer ? Frame_Dt(input->buffer_ms, history.buffer_ms, history.seen_buffer, chassis_power.buffer_timeout_ms) : 0.0f; /* 缓冲连续间隔。 */
-    float cap_dt = new_cap ? Frame_Dt(input->cap_ms, history.cap_ms, history.seen_cap, chassis_power.cap_timeout_ms) : 0.0f; /* 功率连续间隔。 */
-    if ((new_buffer && buffer_dt == 0.0f) || (new_cap && cap_dt == 0.0f)) history.recovery_timing = false; /* 首帧/重连重新计时。 */
-
-
-    if (new_buffer) { /* 下降率、趋势与历史只在有效新缓冲帧更新。 */
-        chassis_power.buffer_drop_j = chassis_power.buffer_drop_rate_w = 0.0f; /* 新帧先清旧下降量/率，仅用于观察。 */
-        chassis_power.buffer_drop_detected = false; /* 随本帧下降量重新计算提示。 */
-        chassis_power.buffer_recovering = false; /* 未满且保持不变，不算正在恢复。 */
-
-        if (buffer_dt > 0.0f) { 
-            chassis_power.buffer_drop_j = fmaxf(0.0f, history.buffer_j - input->buffer_j); /* 相邻帧下降量，J。 */
-            chassis_power.buffer_drop_rate_w = chassis_power.buffer_drop_j / buffer_dt; /* J/s=W，仅表示缓冲净下降率。 */
-            chassis_power.buffer_drop_detected = chassis_power.buffer_drop_j > chassis_power.buffer_drop_threshold_j; /* 提示阈值。 */
-            chassis_power.buffer_recovering = input->buffer_j > history.buffer_j; /* 相邻有效新帧确实上升。 */
-        }
-        chassis_power.buffer_energy_j = input->buffer_j; /* Watch 复制真实当前能量，不把目标 60 J 写进反馈。 */
-        history.seen_buffer = true; /* 标记已有缓冲历史。 */
-        history.buffer_seq = input->buffer_seq; 
-        history.buffer_ms = input->buffer_ms; 
-        history.buffer_j = input->buffer_j; 
-    }
-    if (new_cap) { /* 只复制新的有效实测，不把预测功率当传感器反馈。 */
-        chassis_power.measured_power_w = input->cap_w; 
-        history.seen_cap = true; 
-        history.cap_seq = input->cap_seq; 
-        history.cap_ms = input->cap_ms; 
-    }
-
-    bool buffer_safe = chassis_power.buffer_valid && (input->buffer_j >= chassis_power.buffer_target_j || chassis_power.buffer_recovering); /* 满或上升才支持恢复。 */
-    bool recovery_conditions = chassis_power.judge_limit_valid && buffer_safe && chassis_power.cap_valid &&
-        input->cap_w < chassis_power.measured_warning_w - chassis_power.measured_hysteresis_w; 
-
-    if (!recovery_conditions) { /* 缺反馈、缓冲掉落/停在未满值或实测偏高，都重新开始确认。 */
-        history.recovery_timing = false; 
-        chassis_power.recovery_stable_ms = 0U; 
-
-    } else { /* 三路条件同时满足。 */
-
-        if (!history.recovery_timing) { /* 本轮首次满足条件。 */
-
-            history.recovery_timing = true; 
-            history.recovery_ms = now_ms; 
-        }
-
-        chassis_power.recovery_stable_ms = now_ms - history.recovery_ms; /* 持续满足条件时间，ms。 */
-    }
-    chassis_power.recovery_ready = recovery_conditions && chassis_power.recovery_stable_ms >= chassis_power.recovery_hold_ms; /* 默认持续 500 ms。 */
-
-    if (chassis_power.buffer_valid) { /* 缺额目标直接采用真实反馈；无新帧不重复累加。 */
-
-        float desired_buffer = fminf(chassis_power.base_budget_w, chassis_power.buffer_kp *
-            fmaxf(0.0f, chassis_power.buffer_target_j - input->buffer_j)); /* 默认 max(0,60-实收 J)，每缺 1 J 降 1 W。 */
-
-        if (desired_buffer >= chassis_power.buffer_derate_w) chassis_power.buffer_derate_w = desired_buffer; /* 需要收紧立即采用。 */
-
-        else if (new_buffer && chassis_power.recovery_ready && buffer_dt > 0.0f) { /* 放开需联合确认和连续新帧。 */
-
-            chassis_power.buffer_derate_w = fmaxf(desired_buffer, chassis_power.buffer_derate_w -
-                chassis_power.buffer_recovery_w_per_s * fminf(buffer_dt, .1f)); /* 每帧最多按 0.1 s 释放，避免长间隔突然放开。 */
-        }
-    }
-
-    if (chassis_power.cap_valid) { /* 提前目标可随真实反馈/基础预算重算，但不会重复积分。 */
-
-        float desired_soft = Clamp(chassis_power.measured_soft_kp * fmaxf(0.0f, input->cap_w - chassis_power.measured_warning_w),
-            0.0f, fminf(chassis_power.measured_soft_max_w, chassis_power.base_budget_w)); /* 比例提前修正，默认封顶 5 W。 */
-        if (desired_soft >= chassis_power.measured_soft_derate_w) chassis_power.measured_soft_derate_w = desired_soft; /* 更强修正立即采用。 */
-        if (new_cap && cap_dt > 0.0f) { /* 只有相邻连续有效新帧才允许积分或释放。 */
-
-            if (input->cap_w > chassis_power.base_budget_w) { /* 只有实际超基础预算才累计偏差，警戒区不会无限扣减。 */
-                chassis_power.measured_bias_derate_w += chassis_power.measured_integral_gain_per_s *
-                    (input->cap_w - chassis_power.base_budget_w) * cap_dt; /* 超额 W 乘真实秒数，帧频不改变同时间修正。 */
-
-            } else if (chassis_power.recovery_ready) { /* 功率有余量且缓冲证明恢复，才释放已有实测修正。 */
-
-                float release = chassis_power.measured_recovery_w_per_s * fminf(cap_dt, .1f); /* 两项共同使用本帧恢复额度。 */
-                float soft_release = fminf(release, fmaxf(0.0f, chassis_power.measured_soft_derate_w - desired_soft)); /* 先释放提前项多余部分。 */
-
-                chassis_power.measured_soft_derate_w -= soft_release; /* 不低于当前比例修正目标。 */
-                release -= soft_release; /* 剩余额度再给偏差项，避免两项各释放一次造成翻倍。 */
-                chassis_power.measured_bias_derate_w = fmaxf(0.0f, chassis_power.measured_bias_derate_w - release); /* 偏差项最低为零。 */
-            }
-        }
-    }
-    chassis_power.measured_soft_derate_w = Clamp(chassis_power.measured_soft_derate_w, 0.0f, chassis_power.base_budget_w); /* 上限降低时同步夹紧。 */
-    chassis_power.measured_bias_derate_w = Clamp(chassis_power.measured_bias_derate_w, 0.0f, chassis_power.base_budget_w); /* 偏差不超基础预算。 */
-    chassis_power.measured_derate_w = fminf(chassis_power.base_budget_w,
-        chassis_power.measured_soft_derate_w + chassis_power.measured_bias_derate_w); /* 实测两项合计，W。 */
-
-    chassis_power.feedback_derate_w = fminf(chassis_power.base_budget_w,
-        fmaxf(chassis_power.buffer_derate_w, chassis_power.measured_derate_w)); /* 取较强反馈，不将同次问题完整扣两遍。 */
-
-    float desired_budget = fmaxf(0.0f, chassis_power.base_budget_w - chassis_power.feedback_derate_w); /* 最终目标不超过基础预算。 */
-
-    if (!history.budget_initialized && chassis_power.base_budget_w > 0.0f) { /* 首次获得真实或显式训练额度时建立初始预算。 */
-        chassis_power.target_power_w = desired_budget; /* 按当前反馈修正建立，不凭空采用 75 W。 */
-        history.budget_initialized = true; /* 后续上涨均要走确认与限速。 */
-
-    } else if (desired_budget <= chassis_power.target_power_w) { /* 上限降低或反馈要求收紧。 */
-        chassis_power.target_power_w = desired_budget; /* 下降立即执行。 */
-        
-    } else if (chassis_power.recovery_ready) { /* 上升需联合反馈确认，过期不自动放开。 */
-        chassis_power.target_power_w = fminf(desired_budget, chassis_power.target_power_w +
-            chassis_power.budget_recovery_w_per_s * dt); /* 最终预算每秒最多回升 20 W，不超过本次目标。 */
-    }
+    chassis_power.config_fault = !Budget_Config_Valid();
+    chassis_power.base_budget_w = chassis_power.config_fault ? 0.0f :
+        fmaxf(0.0f, limit - chassis_power.margin_w);
+    /* 每次更新直接跟随上限/裕量变化，没有恢复计时、积分降额或回升限速。 */
+    chassis_power.target_power_w = chassis_power.base_budget_w;
 }
-
 
 static bool Model_Valid(void) {
     
@@ -373,15 +172,23 @@ static float Predict(const float original[4], const float rpm[4], float scale,
 /* 步骤二：读全局 target_power_w，直接修改传入 current 数组，rpm 只读。 */
 void Chassis_Power_Limit(float current[4], const float rpm[4]) {
   
-    if (current == NULL || rpm == NULL) return;
+    if (current == NULL) return;
 
-    /* 清上一拍限流记录，保留 Update 已算的预算和降额。 */
+    /* 清上一拍输出记录，保留 Update 已算的预算和原始反馈。 */
     Chassis_Power_Clear_Output();
 
     /* 保存原 PID 电流供前后对比。 */
     memcpy(chassis_power.current_before, current, sizeof(chassis_power.current_before));
 
   
+    if (rpm == NULL) {
+        chassis_power.model_fault = true;
+        chassis_power.limiting_active = true;
+        memset(current, 0, sizeof(chassis_power.current_after));
+        return;
+    }
+    memcpy(chassis_power.actual_rpm, rpm, sizeof(chassis_power.actual_rpm));
+
     bool valid = Model_Valid() && !chassis_power.config_fault;
 
     /* 逐个检查四轮电流与 RPM 数值输入是否为有限数。 */
@@ -418,7 +225,11 @@ void Chassis_Power_Limit(float current[4], const float rpm[4]) {
     float scale = 1.0f;
 
     /* 原四轮电流的预测总功率超最终预算，开始限流。 */
-    if (chassis_power.predicted_before_w > chassis_power.target_power_w) {
+    if (chassis_power.target_power_w <= 0.0f) {
+        /* 无有效额度时撤去驱动，不因制动预测为零而放行非零电流。 */
+        scale = 0.0f;
+        chassis_power.budget_unreachable = baseline > 0.0f;
+    } else if (chassis_power.predicted_before_w > chassis_power.target_power_w) {
 
         /* 零驱动预测仍超预算，采取撤去驱动策略，不搜索其他系数。 */
         if (baseline > chassis_power.target_power_w) {

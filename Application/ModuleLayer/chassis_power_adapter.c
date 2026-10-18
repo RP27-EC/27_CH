@@ -3,7 +3,7 @@
  * 三步关系：Apply 取数 -> Update 算允许功率 -> Limit 修改电流 -> Apply 写回。
  * 算法修改的是准备发送的电流指令，不是编码器反馈，也不是轮子目标 RPM。
  * Debug 原始量：My_Judge.org_info 的功率上限/当前缓冲，cap.info->chassis_power。
- * 目标 60 J、警戒值、最终预算只存在算法对象里，不写回这三个实收字段。
+ * 预算只用裁判上限减裕量；缓冲与实测功率仅记录，不写回设备反馈。
  */
 #include "chassis_power.h" /* 引入功率算法的输入结构体和函数声明。 */
 #include "chassis_motor.h" /* 访问四个底盘电机的 PID 电流和编码器转速。 */
@@ -12,7 +12,7 @@
 
 void Chassis_Power_Apply(void) {
     ChassisPowerInput_t input = {0}; 
-    float current[4], rpm[4]; 
+    float current[4], rpm[4], target_rpm[4];
     /* 接收中断会同时改数据、时间和序号，短临界区保证拿到同一帧快照。 */
     uint32_t irq_mask = __get_PRIMASK(); /* 保存进入前中断是否关闭，支持外层已关中断的情况。 */
     __disable_irq(); /* 暂停可屏蔽中断处理，防止复制到一半接收回调更新字段；硬件接收仍可进行。 */
@@ -35,11 +35,14 @@ void Chassis_Power_Apply(void) {
     for (unsigned i = 0; i < CHASSIS_POWER_WHEEL_COUNT; ++i) { /* 复制四个轮子的指令与实际转速。 */
         current[i] = Chassis_Motor[i].tx_info->torque; 
         rpm[i] = (float)Chassis_Motor[i].rx_info->encoder_speed; /* 用实际 RPM 估计功率，不能用目标 RPM 代替。 */
+        target_rpm[i] = Chassis_Motor[i].ctrl->speed_ctrl->target;
     }
     __set_PRIMASK(irq_mask); /* 恢复原中断状态；复制结束就恢复，不把下面的功率计算放在临界区内。 */
 
     Chassis_Power_Update(&input, now_ms); /* 第一步：&input 传真实快照；预算和来源写入算法对象，不伪造裁判/超电字段。 */
     Chassis_Power_Limit(current, rpm); /* 第二步：算法读全局预算；传数组地址，所以直接修改这里的 current 数组，不需要返回新数组。 */
-    for (unsigned i = 0; i < CHASSIS_POWER_WHEEL_COUNT; ++i) /* 第三步：把修改后的四轮电流放回电机发送对象。 */
+    for (unsigned i = 0; i < CHASSIS_POWER_WHEEL_COUNT; ++i) { /* 第三步：写回电流，记录目标RPM。 */
         Chassis_Motor[i].tx_info->torque = current[i]; /* 随后的 group_set_torque() 才负责打包并发送 CAN。 */
+        chassis_power.target_rpm[i] = target_rpm[i];
+    }
 }

@@ -9,7 +9,7 @@
 #ifndef SHOOT_MOTOR_H
 #define SHOOT_MOTOR_H
 
-#include "RM_Motor.h"  
+#include "RM_motor.h"  
 
 /* 拨弹电机反馈ID（电调ID=5，挂在CAN2） */
 #define SHOOT_MOTOR_RX_ID         (0x205)
@@ -27,20 +27,19 @@
 #define SHOOT_REPEAT_PERIOD_TICKS (150U)
 
 /* ========================================================================== */
-/*                          卡弹判据（三取二：角度没走完 + 电流大 + 持续）      */
+/* 卡弹判据：起步宽限后，角度未到位 + 高电流 + 低转速连续满足才判卡。 */
 /* ========================================================================== */
 #define SHOOT_STUCK_ANGLE_ERR     (2000.0f)  /* 卡弹角度误差阈值(编码器计数) */
-#define SHOOT_STUCK_CURRENT       (6000.0f)  /* 卡弹电流阈值(raw current) */
-#define SHOOT_STUCK_TICKS         (100U)     /* 持续100×2ms = 200ms 判卡 */
+#define SHOOT_STUCK_CURRENT       (8000.0f)  /* 卡弹电流阈值(raw current) */
+#define SHOOT_STUCK_SPEED_RPM     (80.0f)    /* 转子转速绝对值低于此值才累计 */
+#define SHOOT_STUCK_GRACE_TICKS   (100U)     /* 每次推弹/补位起步200ms不累计判卡 */
+#define SHOOT_STUCK_TICKS         (250U)     /* 宽限后连续约500ms满足才判卡 */
 
 /* 卡弹重试：同一发弹最多补位重试次数，超过进卡弹停机 */
 #define SHOOT_JAM_RETRY_MAX       (3U)
 
-/* 补弹超时兜底：单发/补位 500×2ms = 1s 未到位 */
-#define SHOOT_FIRE_TIMEOUT_TICKS  (500U)
-
-/* 反转松弹：150×2ms = 300ms 未到位也视为完成 */
-#define SHOOT_RECOIL_TIMEOUT_TICKS (150U)
+/* 反转松弹：250×2ms = 500ms 未到位也视为完成 */
+#define SHOOT_RECOIL_TIMEOUT_TICKS (250U)
 #define SHOOT_RECOIL_ARRIVE_ERR   (3000.0f)  /* 反转到位判据(编码器计数) */
 
 

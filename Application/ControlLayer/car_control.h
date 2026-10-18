@@ -11,6 +11,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* 机械模式键鼠转向：每个鼠标横向计数对应的底盘转角(rad)，越大越灵敏。 */
+#define MECH_MOUSE_YAW_SENS_RAD_PER_COUNT (0.001f)
+#define MECH_MOUSE_TIMEOUT_MS (50U)
+
 /* 整车运动模式枚举 */
 typedef enum {
     CAR_MODE_SLEEP = 0,     /* 休眠/关控保护模式 */
@@ -34,6 +38,40 @@ typedef enum {
     INPUT_SRC_RC = 0,       /* 遥控器摇杆 */
     INPUT_SRC_KEY,          /* 键盘鼠标 */
 } InputSrc_e;
+
+/* 机械鼠标转向诊断：原因表示本周期为什么放行或输出0。 */
+typedef enum {
+    MECH_MOUSE_OUTPUT_OK = 0,
+    MECH_MOUSE_INACTIVE_MODE = 1,
+    MECH_MOUSE_CTRL_BLOCKED = 2,
+    MECH_MOUSE_RC_OFFLINE = 3,
+    MECH_MOUSE_RC_ERROR = 4,
+    MECH_MOUSE_WAIT_NEW_FRAME = 5,
+    MECH_MOUSE_NO_VALID_FRAME = 6,
+    MECH_MOUSE_FRAME_STALE = 7,
+    MECH_MOUSE_BAD_INTERVAL = 8,
+    MECH_MOUSE_ZERO_MOVEMENT = 9,
+} MechMouseReason_e;
+
+typedef struct {
+    MechMouseReason_e reason;
+    CarMode_e mode;
+    InputSrc_e input_src;
+    int16_t mouse_dx;              /* 本次读取的原始横向位移，左负右正。 */
+    uint16_t frame_seq;
+    uint32_t frame_age_ms;
+    uint32_t frame_interval_ms;
+    bool frame_received;
+    bool rc_online;
+    bool rc_data_ok;
+    uint8_t ctrl_value;            /* 当前DBUS帧Ctrl。 */
+    uint8_t ctrl_snapshot;         /* 状态机本拍Ctrl快照。 */
+    bool ctrl_release_edge;
+    float requested_motor_rpm;    /* 鼠标单独请求的带符号转子转速；右转为正。 */
+    int16_t channel;              /* 等效ch0，下游取反后控制底盘。 */
+} CarMechMouseDebug_t;
+
+extern CarMechMouseDebug_t car_mech_mouse_debug;
 
 
 /* 复位状态枚举 */
@@ -74,15 +112,15 @@ void Car_Control_Update(Car_t *car);
   * @details 输出统一是 SBUS 计数域 [-660, 660]，与遥控器摇杆同量纲：
   *          - INPUT_SRC_RC  : 直接回传 ch3 / ch2 / ch0（与逐通道传参完全一致）
   *          - INPUT_SRC_KEY : W/S、A/D 的「按住时间比例」折算到 ±660，Ctrl 按住时平移置零
-  *                            机械模式下 Q/E 同样折算到旋转通道（Q=左旋、E=右旋）；
-  *                            GYRO 的 rotate 为鼠标等效前馈通道；SPIN 为 0
+  *                            机械模式用鼠标左右移动转底盘（左移左转、右移右转）；
+  *                            GYRO/SPIN 的 rotate 为0，GYRO 直接使用云台 IMU 前馈
   *
   *          底盘模块因此不必知道输入源，Chassis_Update 的归一化/死区/麦轮解算一条不用改。
   *
   * @param  car     : 整车状态机对象指针
   * @param  forward : 前后通道（正 = 前）
   * @param  lateral : 左右通道（正 = 左）
-  * @param  rotate  : ch0 同号通道，右转为正；MECH 映射 Q/E，GYRO 承载输入前馈
+  * @param  rotate  : ch0 同号通道，右转为正；MECH 映射鼠标横移，GYRO 忽略该通道
   */
 void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int16_t *rotate);
 

@@ -39,10 +39,7 @@
   *
   * @retval None
   */
-__asm void WFI_SET(void)
-{
-    WFI;          /* ARM WFI指令：等待中断，CPU进入低功耗暂停状态 */
-}
+void WFI_SET(void) { __asm volatile ("wfi" ::: "memory"); }
 
 /**
   * @brief  关闭全局中断（CPSID I指令）
@@ -52,11 +49,7 @@ __asm void WFI_SET(void)
   *
   * @retval None
   */
-__asm void INTX_DISABLE(void)
-{
-    CPSID   I     /* 关闭全局可屏蔽中断 */
-    BX      LR    /* 返回调用者（LR寄存器保存了返回地址） */
-}
+void INTX_DISABLE(void) { __asm volatile ("cpsid i" ::: "memory"); }
 
 /**
   * @brief  开启全局中断（CPSIE I指令）
@@ -65,11 +58,7 @@ __asm void INTX_DISABLE(void)
   *
   * @retval None
   */
-__asm void INTX_ENABLE(void)
-{
-    CPSIE   I     /* 开启全局可屏蔽中断 */
-    BX      LR    /* 返回调用者 */
-}
+void INTX_ENABLE(void) { __asm volatile ("cpsie i" ::: "memory"); }
 
 /**
   * @brief  设置主栈指针（MSP）的值
@@ -82,8 +71,4 @@ __asm void INTX_ENABLE(void)
   * @param  addr : 要设置的栈顶地址（必须4字节对齐）
   * @retval None
   */
-__asm void MSR_MSP(uint32_t addr)
-{
-    MSR MSP, r0   /* 将r0寄存器的值（即参数addr）写入MSP寄存器 */
-    BX r14        /* 返回调用者（BX LR的另一种写法） */
-}
+__attribute__((naked)) void MSR_MSP(uint32_t addr) { __asm volatile ("msr msp, r0\n bx lr"); }

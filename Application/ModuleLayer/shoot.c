@@ -29,7 +29,7 @@ static bool     fric_on = false;
 static bool     jam_latched = false;       /* 卡弹锁存：重拨总开关才清 */
 static bool     continuous_armed = false;  /* 连发边沿锁存：松开后才能重新武装 */
 static bool     continuous_last = false;   /* 连发上一次电平，用于求上升沿 */
-static uint16_t fire_cnt = 0;              /* 补弹超时计数 */
+static uint16_t fire_cnt = 0;              /* 推弹经过周期数，仅用于起步判卡宽限 */
 static uint16_t recoil_cnt = 0;            /* 反转超时计数 */
 static uint16_t stuck_cnt = 0;             /* 卡弹判据持续计数 */
 static uint16_t repeat_cnt = 0;            /* 连发定频周期计数 */
@@ -91,16 +91,24 @@ static bool Shoot_Is_Fric_Ready(void)
            board_rx_info.is_fric_work;//摩擦轮速度和工作状态都满足条件
 }
 
-//卡弹判据：角度没走完 + 电流大 + 持续
-static bool Shoot_Is_Stuck(float err)
+/* 起步宽限后：角度没走完 + 电流大 + 转速低，连续满足才判卡。 */
+static bool Shoot_Is_Stuck(float err, uint16_t elapsed_ticks)
 {
-    float current = fabsf((float)Shoot_Motor.rx_info->torque_current_raw);
+    /* 每次FIRE/补位重试重新计算起步宽限，不按推弹总耗时判卡。 */
+    if (elapsed_ticks < SHOOT_STUCK_GRACE_TICKS) {
+        stuck_cnt = 0;
+        return false;
+    }
 
-    if (fabsf(err) > SHOOT_STUCK_ANGLE_ERR && current > SHOOT_STUCK_CURRENT) {
+    float current = fabsf((float)Shoot_Motor.rx_info->torque_current_raw);
+    float speed_rpm = fabsf((float)Shoot_Motor.rx_info->encoder_speed);
+
+    if (fabsf(err) > SHOOT_STUCK_ANGLE_ERR && current > SHOOT_STUCK_CURRENT &&
+        speed_rpm < SHOOT_STUCK_SPEED_RPM) {
         if (stuck_cnt < 0xFFFFU) {//0xFFFFU是uint16_t的最大值，防止溢出+1重新变为0误判不超时
             stuck_cnt++;
         }
-        return stuck_cnt > SHOOT_STUCK_TICKS;//100*2ms 检测到卡弹但是未超时/超时  返回0/1
+        return stuck_cnt > SHOOT_STUCK_TICKS; /* 沿用原有计数边界，约500ms。 */
     }
  
     //不满足卡弹就走这里
@@ -214,7 +222,8 @@ void Shoot_Update(const Car_t *car, bool failsafe)
             if (repeat_cnt >= SHOOT_REPEAT_PERIOD_TICKS) { //节拍数满300ms
                 repeat_cnt = 0;
                 angle_sum_target += SHOOT_ONESHOT_ANGLE;  //目标在此累加先
-                fire_cnt = 0;    // 推弹超时计数清零（重新计这一发的耗时）
+                jam_retry = 0;   /* 新一发独立计重试；RECOIL补位重试不走这里。 */
+                fire_cnt = 0;    // 新一发重新计算起步判卡宽限
                 stuck_cnt = 0;
                 shoot_state = SHOOT_STATE_FIRE;  //切到下一个状态---------推弹状态
                 break;
@@ -225,7 +234,7 @@ void Shoot_Update(const Car_t *car, bool failsafe)
           */
         } else if (car->flags.is_single_shoot_cmd) {
             angle_sum_target += SHOOT_ONESHOT_ANGLE;
-            jam_retry = 0;  //卡弹重试次数，只有单发清零，连发不清，因为连发只要卡弹就停机
+            jam_retry = 0;  /* 单发和连发都在新一发开始时清零。 */
             fire_cnt = 0;
             stuck_cnt = 0;
             shoot_state = SHOOT_STATE_FIRE;
@@ -253,8 +262,8 @@ void Shoot_Update(const Car_t *car, bool failsafe)
             break;
         }
 
-        //！！卡弹/超时，状态位设置跳到RECOIL状态，break不再进行后续的Fire状态的角度环控制！！！
-        if (Shoot_Is_Stuck(err) || (fire_cnt > SHOOT_FIRE_TIMEOUT_TICKS)) {
+        /* 仅持续满足堵转判据时反转；未到位本身不触发反转。 */
+        if (Shoot_Is_Stuck(err, fire_cnt)) {
 
              //跳转瞬间锁存原目标给RECOIL状态使用，因为下面一行会覆盖掉目标 
             jam_saved_target = angle_sum_target;

@@ -170,12 +170,18 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef * huart, uint16_t Size)
   if(huart->Instance == UART5)
   {
 #if UART5_RC_USE_HAL_TOIDLE_DMA
+    /* 已在TC回调中重启DMA后，NDTR==18的IDLE表示没有新数据。
+     * 循环DMA配置下HAL也会以Size=18上报此事件，不能再次解析旧缓冲区。
+     * 保留此保护，防止后续重新生成DMA配置时同一帧被消费两次。 */
+    if (HAL_UARTEx_GetRxEventType(huart) == HAL_UART_RXEVENT_IDLE &&
+        __HAL_DMA_GET_COUNTER(huart->hdmarx) == USART5_RX_BUF_LEN) {
+      return;
+    }
     /*
      * 使用HAL TOIDLE DMA模式的处理逻辑：
      * DBUS帧长度和DMA缓冲区长度都是18字节。
      * 完整的一帧可能以HAL_UART_RXEVENT_TC（传输完成）而非IDLE触发回调。
-     * 无论事件类型是IDLE、TC还是意外的短帧，
-     * 都要解析完整的帧数据并重启接收。
+     * 仅完整帧提交解析；短帧丢弃并重新建立18字节接收。
      */
     if(Size == USART5_RX_DATA_FRAME_LEN)
     {

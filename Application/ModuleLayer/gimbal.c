@@ -74,12 +74,6 @@ static void ClearYawPids(Gimbal_t *gimbal) {
 
 void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.chassis_fow_rads = 0.85f;//0.65往上调
-    gimbal->yaw.key_yaw_ff_gain = 5.0f;
-    gimbal->yaw.key_yaw_speed_rads = 0.0f;
-    gimbal->yaw.key_yaw_ff_channel = 0;
-    gimbal->yaw.key_yaw_ff_last_seq = 0U;
-    gimbal->yaw.key_yaw_ff_active = false;
-    gimbal->yaw.key_yaw_ff_valid = false;
     /* 初始化为休眠模式，等待整车状态机切换到工作模式 */
     gimbal->mode = GIMBAL_MODE_SLEEP;
     gimbal->last_mode = GIMBAL_MODE_SLEEP;
@@ -121,7 +115,7 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.gyro_angle_pid.a = 1.0f;
     gimbal->yaw.gyro_speed_pid.kp = 900.0f; //900
     gimbal->yaw.gyro_speed_pid.ki = 0.0f;
-    gimbal->yaw.gyro_speed_pid.kd = 0.0f;
+    gimbal->yaw.gyro_speed_pid.kd = 20.0f;
     /* 陀螺仪速度环输出是最终电流指令，先限制为安全调试值，避免
      * IMU反馈异常或方向不一致时直接满电流疯转。 */
     gimbal->yaw.gyro_speed_pid.out_max = 1800.0f;  //最上面为2000
@@ -136,7 +130,7 @@ void Gimbal_Init(Gimbal_t *gimbal) {
     gimbal->yaw.target_imu_angle = 0.0f;      /* IMU目标角 */
     gimbal->yaw.imu_angle = 0.0f;             /* IMU反馈角（来自上层C板） */
     gimbal->yaw.imu_speed = 0.0f;             /* IMU反馈速度（来自上层C板） */
-    gimbal->yaw.gyro_sensitivity = 0.000015f; /* 灵敏度对半砍了太慢了现在改到这个参数*/
+    gimbal->yaw.gyro_sensitivity = 0.000008f; /* 灵敏度*/
 
     gimbal->yaw.align_dir = ALIGN_FRONT;      /* 就近对齐默认锁车头轴 */
     gimbal->yaw.align_veto_cnt = 0U;          /* 无否决 */
@@ -204,28 +198,6 @@ static float Gimbal_Trim_Step(void) {
     return (rc_sensor.info->Shift.value != 0U) ? KEY_TRIM_STEP_LARGE : KEY_TRIM_STEP_SMALL;
 }
 
-/* 只清前馈观察量，不改目标角与 Watch 中设置的独立倍率。 */
-static void Gimbal_Key_Yaw_Feedforward_Clear(Gimbal_t *gimbal) {
-    gimbal->yaw.key_yaw_speed_rads = 0.0f;
-    gimbal->yaw.key_yaw_ff_channel = 0;
-    gimbal->yaw.key_yaw_ff_valid = false;
-}
-
-static void Gimbal_Key_Yaw_Feedforward_Enable(Gimbal_t *gimbal, CarMode_e car_mode) {
-    const bool active = car_mode == CAR_MODE_GYRO &&
-        gimbal->mode == GIMBAL_MODE_GYRO && hero_car.input_src == INPUT_SRC_KEY &&
-        rc_sensor.work_state == DEV_ONLINE && rc_sensor.errno == NONE_ERR &&
-        board_rx_info.is_online && rc_sensor.info->Ctrl.value == 0U;
-    if (!active || !gimbal->yaw.key_yaw_ff_active) {
-        uint32_t irq_mask = __get_PRIMASK();
-        __disable_irq();
-        gimbal->yaw.key_yaw_ff_last_seq = rc_sensor.info->frame_seq;
-        __set_PRIMASK(irq_mask);
-        Gimbal_Key_Yaw_Feedforward_Clear(gimbal);
-    }
-    gimbal->yaw.key_yaw_ff_active = active;
-}
-
 /**
   * @brief  键鼠模式下的 Yaw 目标角更新
   * @details 两件事：
@@ -244,23 +216,15 @@ static void Gimbal_Key_Yaw_Feedforward_Enable(Gimbal_t *gimbal, CarMode_e car_mo
 static void Gimbal_Key_Yaw_Update(Gimbal_t *gimbal) {
     static uint16_t last_seq = 0;   /* 上次消费过的 DBUS 帧序号 */
     uint16_t seq;
-    int16_t mouse_raw;
     float mouse_x;
-    uint32_t frame_ms, interval_ms, now_ms;
-    bool received;
     uint8_t ctrl;
     uint32_t irq_mask = __get_PRIMASK();
 
-    /* 中断更新数据与时间：短临界区复制同一帧，恢复中断后再换算。 */
+    /* 短临界区复制同一帧；底盘前馈直接使用云台 IMU，不再换算鼠标速度。 */
     __disable_irq();
     seq = rc_sensor.info->frame_seq;
-    mouse_raw = rc_sensor.info->mouse_vx;
     mouse_x = rc_sensor.info->mouse_x;
-    frame_ms = rc_sensor.info->frame_update_ms;
-    interval_ms = rc_sensor.info->frame_interval_ms;
-    received = rc_sensor.info->frame_received;
     ctrl = rc_sensor.info->Ctrl.value;
-    now_ms = HAL_GetTick();
     __set_PRIMASK(irq_mask);
 
     /* 鼠标横向：鼠标右移 = 瞄准向右 = 目标角减小 */
@@ -269,30 +233,6 @@ static void Gimbal_Key_Yaw_Update(Gimbal_t *gimbal) {
         /* 均值来源为 int16_t 鼠标值；异常浮点值不能污染目标或让角度归一化卡死。 */
         if (isfinite(mouse_x) && fabsf(mouse_x) <= 32768.0f) {
             gimbal->yaw.target_imu_angle -= mouse_x * MOUSE_YAW_SENS;
-        }
-    }
-
-    if (!gimbal->yaw.key_yaw_ff_active || !received || ctrl != 0U ||
-        now_ms - frame_ms >= MOUSE_YAW_FF_TIMEOUT_MS || mouse_raw == 0 ||
-        interval_ms == 0U || interval_ms > MOUSE_YAW_FF_TIMEOUT_MS ||
-        !isfinite(mouse_x) || fabsf(mouse_x) > 32768.0f ||
-        !isfinite(gimbal->yaw.gyro_sensitivity) ||
-        gimbal->yaw.gyro_sensitivity <= 0.0f ||
-        !isfinite(gimbal->yaw.key_yaw_ff_gain) || gimbal->yaw.key_yaw_ff_gain <= 0.0f) {
-        Gimbal_Key_Yaw_Feedforward_Clear(gimbal);
-        gimbal->yaw.key_yaw_ff_last_seq = seq;
-    } else if (seq != gimbal->yaw.key_yaw_ff_last_seq) {
-        float speed = -mouse_x * MOUSE_YAW_SENS * 1000.0f / (float)interval_ms;
-        /* 遥控每 2 ms 增量 = -ch0 * gyro_sensitivity，因此反解等效 ch0。 */
-        float channel = -speed * GIMBAL_CONTROL_PERIOD_S /
-                        gimbal->yaw.gyro_sensitivity * gimbal->yaw.key_yaw_ff_gain;
-        gimbal->yaw.key_yaw_ff_last_seq = seq;
-        if (isfinite(speed) && isfinite(channel)) {
-            gimbal->yaw.key_yaw_speed_rads = speed;
-            gimbal->yaw.key_yaw_ff_channel = (int16_t)constrain(channel, -660.0f, 660.0f);
-            gimbal->yaw.key_yaw_ff_valid = true;
-        } else {
-            Gimbal_Key_Yaw_Feedforward_Clear(gimbal);
         }
     }
 
@@ -648,9 +588,6 @@ void Gimbal_Update(Gimbal_t *gimbal, CarMode_e car_mode) {
     else {
         gimbal->mode = GIMBAL_MODE_MECH;  
     }
-
-    /* 非 GYRO 键鼠或设备失效时关闭前馈；重新切入等待新鼠标帧。 */
-    Gimbal_Key_Yaw_Feedforward_Enable(gimbal, car_mode);
 
     /* 重新进入寻零时必须使用编码器闭环；清掉上一个模式的积分和输出。 */
     if (gimbal->mode == GIMBAL_MODE_INIT) {

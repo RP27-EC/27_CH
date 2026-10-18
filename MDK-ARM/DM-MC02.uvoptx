@@ -103,7 +103,7 @@
         <bEvRecOn>1</bEvRecOn>
         <bSchkAxf>0</bSchkAxf>
         <bTchkAxf>0</bTchkAxf>
-        <nTsel>3</nTsel>
+        <nTsel>4</nTsel>
         <sDll></sDll>
         <sDllPa></sDllPa>
         <sDlgDll></sDlgDll>
@@ -164,46 +164,30 @@
           <Type>0</Type>
           <LineNumber>2789</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134234152</Address>
+          <Address>134239960</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>1</BreakIfRCount>
-          <Filename>D:\妗岄潰\rp鎵嬪唽\RP27-Train_Template-main\Down\RP2026_Templete_DM_MC02\RP2026_Templete-Keil_MDK_DM_MC02\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_fdcan.c</Filename>
+          <Filename>../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_fdcan.c</Filename>
           <ExecCommand></ExecCommand>
           <Expression>\\DM_MC02\../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_fdcan.c\2789</Expression>
         </Bp>
         <Bp>
           <Number>1</Number>
           <Type>0</Type>
-          <LineNumber>2757</LineNumber>
-          <EnabledFlag>1</EnabledFlag>
-          <Address>134234210</Address>
-          <ByteObject>0</ByteObject>
-          <HtxType>0</HtxType>
-          <ManyObjects>0</ManyObjects>
-          <SizeOfObject>0</SizeOfObject>
-          <BreakByAccess>0</BreakByAccess>
-          <BreakIfRCount>1</BreakIfRCount>
-          <Filename>D:\妗岄潰\rp鎵嬪唽\RP27-Train_Template-main\Down\RP2026_Templete_DM_MC02\RP2026_Templete-Keil_MDK_DM_MC02\Drivers\STM32H7xx_HAL_Driver\Src\stm32h7xx_hal_fdcan.c</Filename>
-          <ExecCommand></ExecCommand>
-          <Expression>\\DM_MC02\../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_fdcan.c\2757</Expression>
-        </Bp>
-        <Bp>
-          <Number>2</Number>
-          <Type>0</Type>
           <LineNumber>2090</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134283470</Address>
+          <Address>134290464</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>1</BreakIfRCount>
-          <Filename>D:\妗岄潰\rp鎵嬪唽\RP27-Train_Template-main\Down\RP2026_Templete_DM_MC02\RP2026_Templete-Keil_MDK_DM_MC02\Middlewares\Third_Party\FreeRTOS\Source\tasks.c</Filename>
+          <Filename>../Middlewares/Third_Party/FreeRTOS/Source/tasks.c</Filename>
           <ExecCommand></ExecCommand>
           <Expression>\\DM_MC02\../Middlewares/Third_Party/FreeRTOS/Source/tasks.c\2090</Expression>
         </Bp>
@@ -283,6 +267,11 @@
           <count>14</count>
           <WinNumber>1</WinNumber>
           <ItemText>judge_frame_header</ItemText>
+        </Ww>
+        <Ww>
+          <count>15</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>car_mech_mouse_debug</ItemText>
         </Ww>
       </WatchWindow1>
       <WatchWindow2>
@@ -929,7 +918,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c</PathWithFileName>
+      <PathWithFileName>../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c</PathWithFileName>
       <FilenameWithoutPath>port.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>

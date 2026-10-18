@@ -13,6 +13,7 @@
 
 
 Car_t hero_car;
+CarMechMouseDebug_t car_mech_mouse_debug;
 
 
 
@@ -391,6 +392,106 @@ static void Car_Key_Action_Cmd_Update(Car_t *car) {
 /*                     5. 底盘通道取值（遥控器 / 键鼠）                       */
 /* ========================================================================= */
 
+/* 鼠标每帧增量/真实帧间隔 -> 角速度 -> 等效ch0。
+ * 这里保持速度指令，不累加角度；同一DBUS帧在多个2ms控制拍之间保持，不能重复积分。
+ * 切入MECH/键鼠或松开Ctrl后先等新帧，避免复用上一模式/微调时的移动。 */
+static int16_t Car_Mech_Mouse_Rotate(Car_t *car, bool context_changed) {
+    static bool was_active = false;
+    static bool waiting_new_frame = false;
+    static uint16_t entry_seq;
+    uint16_t seq;
+    int16_t mouse_dx;
+    uint32_t frame_ms, interval_ms;
+    bool received;
+    uint8_t ctrl;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    seq = rc_sensor.info->frame_seq;
+    mouse_dx = rc_sensor.info->mouse_vx;
+    frame_ms = rc_sensor.info->frame_update_ms;
+    interval_ms = rc_sensor.info->frame_interval_ms;
+    received = rc_sensor.info->frame_received;
+    ctrl = rc_sensor.info->Ctrl.value;
+    __set_PRIMASK(primask);
+
+    /* 只观察现有判据，不改变原来的输入放行/屏蔽条件。 */
+    car_mech_mouse_debug.mode = car->mode;
+    car_mech_mouse_debug.input_src = car->input_src;
+    car_mech_mouse_debug.mouse_dx = mouse_dx;
+    car_mech_mouse_debug.frame_seq = seq;
+    car_mech_mouse_debug.frame_age_ms = HAL_GetTick() - frame_ms;
+    car_mech_mouse_debug.frame_interval_ms = interval_ms;
+    car_mech_mouse_debug.frame_received = received;
+    car_mech_mouse_debug.rc_online = rc_sensor.work_state == DEV_ONLINE;
+    car_mech_mouse_debug.rc_data_ok = rc_sensor.errno == NONE_ERR;
+    car_mech_mouse_debug.ctrl_value = ctrl;
+    car_mech_mouse_debug.ctrl_snapshot = ctrl_val_snap;
+    car_mech_mouse_debug.ctrl_release_edge = ctrl_fall_edge;
+    car_mech_mouse_debug.channel = 0;
+    car_mech_mouse_debug.requested_motor_rpm = 0.0f;
+
+    bool active = car->input_src == INPUT_SRC_KEY && car->mode == CAR_MODE_MECH &&
+        ctrl_val_snap == 0U && ctrl == 0U && !ctrl_fall_edge &&
+        rc_sensor.work_state == DEV_ONLINE && rc_sensor.errno == NONE_ERR;
+    if (!active) {
+        was_active = false;
+        waiting_new_frame = false;
+        if (car->input_src != INPUT_SRC_KEY || car->mode != CAR_MODE_MECH)
+            car_mech_mouse_debug.reason = MECH_MOUSE_INACTIVE_MODE;
+        else if (ctrl_val_snap != 0U || ctrl != 0U || ctrl_fall_edge)
+            car_mech_mouse_debug.reason = MECH_MOUSE_CTRL_BLOCKED;
+        else if (rc_sensor.work_state != DEV_ONLINE)
+            car_mech_mouse_debug.reason = MECH_MOUSE_RC_OFFLINE;
+        else
+            car_mech_mouse_debug.reason = MECH_MOUSE_RC_ERROR;
+        return 0;
+    }
+    if (!was_active || context_changed) {
+        entry_seq = seq;
+        waiting_new_frame = true;
+    }
+    was_active = true;
+    if (waiting_new_frame) {
+        if (seq == entry_seq) {
+            car_mech_mouse_debug.reason = MECH_MOUSE_WAIT_NEW_FRAME;
+            return 0;
+        }
+        waiting_new_frame = false;
+    }
+    if (!received) {
+        car_mech_mouse_debug.reason = MECH_MOUSE_NO_VALID_FRAME;
+        return 0;
+    }
+    if (car_mech_mouse_debug.frame_age_ms >= MECH_MOUSE_TIMEOUT_MS) {
+        car_mech_mouse_debug.reason = MECH_MOUSE_FRAME_STALE;
+        return 0;
+    }
+    if (interval_ms == 0U || interval_ms > MECH_MOUSE_TIMEOUT_MS) {
+        car_mech_mouse_debug.reason = MECH_MOUSE_BAD_INTERVAL;
+        return 0;
+    }
+    if (mouse_dx == 0) {
+        car_mech_mouse_debug.reason = MECH_MOUSE_ZERO_MOVEMENT;
+        return 0;
+    }
+
+    /* 鼠标右移为正，与ch0同号；chassis.c统一取反后得到顺时针转向。
+     * 用原始增量避免鼠标停止后均值滤波的尾值继续驱动车辆。 */
+    float speed_rads = (float)mouse_dx * MECH_MOUSE_YAW_SENS_RAD_PER_COUNT *
+                       1000.0f / (float)interval_ms;
+    float norm = speed_rads * CHASSIS_YAW_RPM_PER_RADS / CHASSIS_MAX_MOTOR_RPM;
+    if (norm > 1.0f) norm = 1.0f;
+    if (norm < -1.0f) norm = -1.0f;
+    /* 下游还会扣除旋转通道死区，这里反算通道，避免低速鼠标被30计数死区吞掉。 */
+    float channel = norm * (CHASSIS_RC_MAX_VALUE - CHASSIS_ROTATE_DEADZONE);
+    if (norm > 0.0f) channel += CHASSIS_ROTATE_DEADZONE;
+    if (norm < 0.0f) channel -= CHASSIS_ROTATE_DEADZONE;
+    car_mech_mouse_debug.reason = MECH_MOUSE_OUTPUT_OK;
+    car_mech_mouse_debug.requested_motor_rpm = norm * CHASSIS_MAX_MOTOR_RPM;
+    car_mech_mouse_debug.channel = (int16_t)channel;
+    return car_mech_mouse_debug.channel;
+}
+
 /**
   * @brief  按当前输入源取底盘三轴通道
   * @details 输出统一是 SBUS 计数域 [-660, 660]：遥控器直接回传摇杆通道，
@@ -401,21 +502,22 @@ static void Car_Key_Action_Cmd_Update(Car_t *car) {
   *          按满 cnt_max 自动饱和到 1.0（cnt 本身在 keyboard_status_update 里被钳位），
   *          W+S / A+D 同按自然对消。没有斜坡状态要维护。
   *
-  *          键鼠旋转映射（仅机械模式）：Q=左旋、E=右旋，与摇杆左右同向
+  *          键鼠旋转映射（仅机械模式）：鼠标左移左旋、右移右旋，与摇杆左右同向
   *          （chassis.c 对 rotate 通道取反后，左打 = 逆时针）。
-  *          GYRO 的 rotate 承载鼠标等效前馈，SPIN 保持 0，自旋由模式给 wz。
+  *          GYRO/SPIN 的键鼠 rotate 保持0，GYRO 使用云台 IMU 前馈，SPIN 由模式给 wz。
   *
   * @param  car     : 整车状态机对象指针
   * @param  forward : 前后通道（正 = 前）
   * @param  lateral : 左右通道（正 = 左）
-  * @param  rotate  : 自旋通道（正 = 逆时针；键鼠仅机械模式映射 Q/E，其余恒为 0）
+  * @param  rotate  : ch0同号通道，右转为正；键鼠仅机械模式映射鼠标，其余为0
   * @retval None
   */
 void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int16_t *rotate) {
     static InputSrc_e last_input_src = INPUT_SRC_RC;
     static CarMode_e last_mode = CAR_MODE_SLEEP;
-    if (car->input_src != last_input_src || car->mode != last_mode) {
-        Chassis_Reset_Yaw_Feedforward(); /* 切换不能把上一输入源的低通残值带进来。 */
+    const bool context_changed = car->input_src != last_input_src || car->mode != last_mode;
+    if (context_changed) {
+        Chassis_Reset_Yaw_Feedforward(); /* 模式或输入源切换时重置 IMU 前馈滤波。 */
         last_input_src = car->input_src;
         last_mode = car->mode;
     }
@@ -430,16 +532,8 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
         rc_sensor.info->D.cnt = 0;
     }
 
-    /* Q/E 旋转斜坡：与 WASD 同一套「只在消费时放行」规则。
-       非键鼠 / SLEEP / INIT / Ctrl 按住 / 非机械模式一律清零，
-       否则预充电会在切进 MECH 或松开 Ctrl 当拍满速旋转。 */
-    const bool rotate_live = ramp_live &&
-                             (car->mode == CAR_MODE_MECH) &&
-                             (ctrl_val_snap == 0U);
-    if (!rotate_live || ctrl_fall_edge) {
-        rc_sensor.info->Q.cnt = 0;
-        rc_sensor.info->E.cnt = 0;
-    }
+    /* 每拍维护激活状态，保证模式切换/Ctrl释放后不消费旧鼠标样本。 */
+    const int16_t mouse_rotate = Car_Mech_Mouse_Rotate(car, context_changed);
 
     if (car->input_src != INPUT_SRC_KEY) {
         *forward = rc_sensor.info->ch3;
@@ -449,7 +543,7 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
     }
 
     /* Ctrl = 云台微调模式：底盘平移与旋转都置零，微调时车不能跟着跑。
-       WASD/Q/E 边沿此时归云台做 0.05°/0.2° 步进微调用。 */
+       WASD 边沿此时归云台做 0.05°/0.2° 步进微调用。 */
     if (ctrl_val_snap != 0U) {
         *forward = 0;
         *lateral = 0;
@@ -461,14 +555,10 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
         *lateral = (int16_t)((float)(rc_sensor.info->D.cnt - rc_sensor.info->A.cnt)
                              * CHASSIS_RC_MAX_VALUE / (float)KEY_A_CNT_MAX);
 
-        /* 机械模式才映射旋转：E - Q 使 E 为正、Q 为负，
-           与摇杆 ch0 左负右正同号，经 chassis.c 取反后方向一致。
-           GYRO 使用云台产生的鼠标等效通道作前馈；SPIN 不接收旋转键。 */
+        /* 机械模式用鼠标横移控制底盘旋转，Q/E不再参与转向。
+           GYRO 由 chassis.c 使用云台 IMU 实测角速度前馈；SPIN 不接收旋转键。 */
         if (car->mode == CAR_MODE_MECH) {
-            *rotate = (int16_t)((float)(rc_sensor.info->E.cnt - rc_sensor.info->Q.cnt)
-                                * CHASSIS_RC_MAX_VALUE / (float)KEY_Q_CNT_MAX);
-        } else if (car->mode == CAR_MODE_GYRO && hero_gimbal.yaw.key_yaw_ff_valid) {
-            *rotate = hero_gimbal.yaw.key_yaw_ff_channel;
+            *rotate = mouse_rotate;
         } else {
             *rotate = 0;
         }

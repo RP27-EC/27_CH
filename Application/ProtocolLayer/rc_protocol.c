@@ -342,6 +342,12 @@ void keyboard_status_update(key_board_info_t *key)
 void USART5_rxDataHandler(uint8_t *rxBuf)
 {
     uint32_t now_ms = HAL_GetTick(); /* 收帧时间，不使用控制任务的 2 ms 代替 DBUS 间隔。 */
+    /* UART5为100kbps，18字节至少需要约2ms。小于2ms不可能是一整帧新数据，
+     * 忽略重复提交，不能覆盖有效间隔/刷新心跳/重复累计鼠标目标。 */
+    if (rc_sensor.info->frame_received &&
+        now_ms - rc_sensor.info->frame_update_ms < 2U) {
+        return;
+    }
     /* 每收到一帧完整的DBUS数据就重置离线计数器（包括第一帧） */
     rc_sensor.info->offline_cnt = 0;
 

@@ -9,7 +9,7 @@
 #ifndef CHASSIS_MOTOR_H
 #define CHASSIS_MOTOR_H
 
-#include "RM_Motor.h"  /* RoboMaster电机驱动库 */
+#include "RM_motor.h"  /* RoboMaster电机驱动库 */
 
 /**
   * @brief  四个轮子的方向系数

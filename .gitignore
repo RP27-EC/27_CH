@@ -11,3 +11,15 @@ __pycache__/
 *.iex
 *.dep
 *.lnp
+
+# Keil generated build output and local backups
+/MDK-ARM/DM-MC02/
+*.bak
+
+# Local build artifacts and debugger logs
+*.axf
+*.hex
+*.map
+*.log
+*.build_log.htm
+/MDK-ARM/JLinkLog.txt

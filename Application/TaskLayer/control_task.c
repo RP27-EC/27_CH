@@ -96,6 +96,8 @@ void StartCtrlTask(void *argument)
                        chassis_lat,                          /* 左右平移通道 */
                        chassis_rot,                          /* 自旋转通道 */
                        hero_gimbal.yaw.feedback_mec_angle,   /* 云台相对车头夹角 Δθ（弧度） */
+                       hero_gimbal.yaw.imu_speed,            /* 云台实测空间角速度(rad/s)，供GYRO前馈 */
+                       board_rx_info.is_online,             /* 0x021超时立即撤掉前馈 */
                        hero_gimbal.yaw.align_dir,            /* 双向就近对齐：FRONT/BACK */
                        hero_car.mode,                        /* 整车当前模式 */
                        chassis_failsafe);                    /* 失联保护标志 */

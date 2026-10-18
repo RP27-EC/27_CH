@@ -9,13 +9,17 @@
   */
 
 #include "chassis.h"
-//#include "chassis_power.h"
+#include "chassis_power.h"
 
 #include "chassis_kinematics.h"  /* 麦轮运动学解算模块 */
 #include "chassis_motor.h"       /* 底盘电机驱动模块 */
-#include "pid.h"                 /* PID控制器模块 */
+#include "PID.h"                 /* PID控制器模块 */
 
 #include <math.h>
+
+#if defined(__ARMCC_VERSION) && defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "Compile chassis.c with -ffp-mode=full so IMU finite-value guards remain effective."
+#endif
 
 static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_FL_DIRECTION,  /* 前左轮方向系数 */
@@ -24,13 +28,30 @@ static const float chassis_wheel_direction[CHASSIS_WHEEL_COUNT] = {
     CHASSIS_BR_DIRECTION,  /* 后右轮方向系数 */
 };
 
+#define CHASSIS_PI (3.14159265358979323846f)
+#define CHASSIS_DEG_TO_RAD (CHASSIS_PI / 180.0f)
 
 
-static float chassis_yaw_ff_filtered = 0.0f;
+
+ChassisYawFollow_t chassis_yaw_follow = {
+    .ff_gain = 1.0f,
+    .rpm_per_rads = CHASSIS_YAW_RPM_PER_RADS,
+    .lpf_alpha = 0.20f,
+    .deadzone_rads = 0.03f,
+};
 
 void Chassis_Reset_Yaw_Feedforward(void)
 {
-    chassis_yaw_ff_filtered = 0.0f;
+    /* 保留 Watch 调整的参数，只清观测量及滤波状态。 */
+    chassis_yaw_follow.imu_speed_rads = 0.0f;
+    chassis_yaw_follow.filtered_speed_rads = 0.0f;
+    chassis_yaw_follow.ff_wz = 0.0f;
+    chassis_yaw_follow.follow_wz = 0.0f;
+    chassis_yaw_follow.output_wz = 0.0f;
+    chassis_yaw_follow.ff_valid = false;
+    chassis_yaw_follow.raw_angle_rads = 0.0f;
+    chassis_yaw_follow.follow_error_rads = 0.0f;
+    /* 输入源切换仅清前馈，不改变当前车头/车尾选择及迟滞状态。 */
 }
 
 static float Chassis_Clamp_Channel(int16_t channel)
@@ -86,6 +107,10 @@ float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
     float err_eff;
     float wz_norm;
 
+    if (!isfinite(delta_angle)) {
+        return 0.0f;
+    }
+
     /* 夹角很小时不跟转，避免车头在目标附近来回抖动，tip这个视情况看是否取消 */
     if (fabsf(delta_angle) < CHASSIS_FOLLOW_DEADZONE) {
         return 0.0f;
@@ -105,11 +130,88 @@ float Chassis_Calc_Follow_Wz_Norm(float delta_angle)
     return Chassis_Clamp_Normalized(wz_norm);
 }
 
+/* 输入为真实夹角，先归一，再选择较近的车头/车尾轴。
+ * 首次进入（包括退出SPIN）按90度直接选；持续GYRO使用88/91度迟滞。 */
+static float Chassis_Gyro_Align_Error(float angle)
+{
+    ChassisYawFollow_t *yaw = &chassis_yaw_follow;
+    float abs_angle = fabsf(angle);
+    if (!yaw->align_valid ||
+        (yaw->align_dir != ALIGN_FRONT && yaw->align_dir != ALIGN_BACK)) {
+        yaw->align_dir = abs_angle > CHASSIS_PI * 0.5f ? ALIGN_BACK : ALIGN_FRONT;
+        yaw->align_valid = true;
+    } else if (yaw->align_dir == ALIGN_FRONT &&
+               abs_angle > CHASSIS_GYRO_ALIGN_BACK_MIN_DEG * CHASSIS_DEG_TO_RAD) {
+        yaw->align_dir = ALIGN_BACK;
+    } else if (yaw->align_dir == ALIGN_BACK &&
+               abs_angle < CHASSIS_GYRO_ALIGN_FRONT_MAX_DEG * CHASSIS_DEG_TO_RAD) {
+        yaw->align_dir = ALIGN_FRONT;
+    }
+
+    if (yaw->align_dir == ALIGN_BACK) {
+        /* +150度对车尾的误差为-30度；-150度对应+30度。 */
+        return angle >= 0.0f ? angle - CHASSIS_PI : angle + CHASSIS_PI;
+    }
+    return angle;
+}
+
+float Chassis_Calc_Gyro_Wz(float delta_angle, float gimbal_yaw_speed_rads,
+                          bool gimbal_yaw_valid)
+{
+    ChassisYawFollow_t *yaw = &chassis_yaw_follow;
+    float raw_angle = 0.0f;
+    float follow_error = 0.0f;
+    if (isfinite(delta_angle)) {
+        raw_angle = fmodf(delta_angle, 2.0f * CHASSIS_PI);
+        if (raw_angle > CHASSIS_PI) raw_angle -= 2.0f * CHASSIS_PI;
+        if (raw_angle < -CHASSIS_PI) raw_angle += 2.0f * CHASSIS_PI;
+        follow_error = Chassis_Gyro_Align_Error(raw_angle);
+    } else {
+        yaw->align_valid = false;
+    }
+    float follow_wz = Chassis_Calc_Follow_Wz_Norm(follow_error);
+
+    /* 上板超时/异常数值时立即丢弃前馈和历史，不保留旧速度驱动底盘。 */
+    if (!gimbal_yaw_valid || !isfinite(gimbal_yaw_speed_rads) ||
+        !isfinite(delta_angle) || !isfinite(yaw->ff_gain) || yaw->ff_gain < 0.0f ||
+        !isfinite(yaw->rpm_per_rads) || yaw->rpm_per_rads <= 0.0f ||
+        !isfinite(yaw->lpf_alpha) || yaw->lpf_alpha <= 0.0f || yaw->lpf_alpha > 1.0f ||
+        !isfinite(yaw->deadzone_rads) || yaw->deadzone_rads < 0.0f ||
+        !isfinite(yaw->filtered_speed_rads)) {
+        Chassis_Reset_Yaw_Feedforward();
+    } else {
+        float speed = gimbal_yaw_speed_rads;
+        float max_speed = CHASSIS_MAX_MOTOR_RPM / yaw->rpm_per_rads;
+        /* 进入低通前先限到满轮速对应的角速度，避免高速输入留下很长的滤波尾值。 */
+        if (speed > max_speed) speed = max_speed;
+        if (speed < -max_speed) speed = -max_speed;
+        if (fabsf(speed) <= yaw->deadzone_rads) speed = 0.0f;
+        yaw->imu_speed_rads = gimbal_yaw_speed_rads;
+        yaw->filtered_speed_rads += yaw->lpf_alpha * (speed - yaw->filtered_speed_rads);
+        /* 输出死区不清除滤波器状态，保证小速度能连续建立前馈。 */
+        float ff_wz = (fabsf(yaw->filtered_speed_rads) <= yaw->deadzone_rads) ? 0.0f :
+            yaw->filtered_speed_rads * (yaw->rpm_per_rads / CHASSIS_MAX_MOTOR_RPM) * yaw->ff_gain;
+        if (!isfinite(ff_wz) || !isfinite(yaw->filtered_speed_rads)) {
+            Chassis_Reset_Yaw_Feedforward();
+        } else {
+            yaw->ff_wz = Chassis_Clamp_Normalized(ff_wz);
+            yaw->ff_valid = true;
+        }
+    }
+    yaw->raw_angle_rads = raw_angle;
+    yaw->follow_error_rads = follow_error;
+    yaw->follow_wz = follow_wz;
+    yaw->output_wz = Chassis_Clamp_Normalized(follow_wz + yaw->ff_wz);
+    return yaw->output_wz;
+}
+
 
 void Chassis_Stop(void)
 {
     Chassis_Reset_Yaw_Feedforward();
-    //Chassis_Power_Clear_Output();
+    chassis_yaw_follow.align_valid = false;
+    chassis_yaw_follow.align_dir = ALIGN_FRONT;
+    Chassis_Power_Clear_Output();
     /* 遍历四个轮子，逐个清零PID控制器和电机输出 */
     for (unsigned int i = 0; i < CHASSIS_WHEEL_COUNT; ++i) {
         pid_ctrl_t *speed_pid = Chassis_Motor[i].ctrl->speed_ctrl;
@@ -139,7 +241,7 @@ void Chassis_Stop(void)
 
 void Chassis_Init(void)
 {
-    //Chassis_Power_Init();
+    Chassis_Power_Init();
     Chassis_Stop();  /* 初始化时先停止底盘，确保安全 */
 }
 
@@ -156,7 +258,7 @@ void Chassis_Init(void)
   *             操作手输入在云台坐标系（视线方向），按 delta_theta 投影到底盘系。
   *             头在车尾（Δθ≈180°）时 cos(180°)=-1，W 自动物理倒车，
   *             操作手视角仍为「向准星前方走」，不需要手写 W/S 反转。
-  *          4. GYRO 始终用真实云台夹角跟随车头，不采用机械模式的车尾就近对齐
+  *          4. GYRO 独立选择较近车头/车尾跟随；平移始终使用真实云台夹角
   *          5. 调用麦轮运动学解算，计算四个轮子的目标转速
   *          6. 应用轮子方向系数，设置电机速度目标
   *          7. 通过CAN总线批量发送控制指令
@@ -165,17 +267,20 @@ void Chassis_Init(void)
   * @param  lateral    : 左右方向遥控器通道值，正值向左，范围[-660, 660]（云台坐标系）
   * @param  rotate     : 旋转方向遥控器通道值，正值逆时针，范围[-660, 660]
   * @param  delta_theta: 云台相对车头的夹角（弧度），用于坐标系旋转
+  * @param  gimbal_yaw_speed_rads: 云台 IMU 实测空间角速度，rad/s，逆时针为正
+  * @param  gimbal_yaw_valid: 上板 Yaw IMU 数据在线标志，超时只撤掉前馈
   * @param  align_dir  : 保留接口参数；机械锁轴由云台处理，GYRO 跟随不使用此值
   * @param  car_mode   : 整车当前模式，决定跟随/自旋/手动旋转
   * @param  failsafe   : 失联保护标志，true时立即停止底盘
   * @retval None
   */
 void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
-                    float delta_theta, AlignDir_e align_dir,
+                    float delta_theta, float gimbal_yaw_speed_rads,
+                    bool gimbal_yaw_valid, AlignDir_e align_dir,
                     CarMode_e car_mode, bool failsafe)
 {
     float wheel_rpm[CHASSIS_WHEEL_COUNT];  /* 四个轮子的目标转速(RPM) */
-    (void)align_dir;  /* GYRO 不再使用机械模式的就近锁轴方向。 */
+    (void)align_dir;  /* GYRO底盘对齐端独立维护，不改变云台机械锁轴。 */
 
     /* 将遥控器通道原始值归一化到[-1, 1] */
     float vx = Chassis_Clamp_Channel_Deadzone(forward, CHASSIS_FORWARD_DEADZONE);     /* 前后速度（带中位死区） */
@@ -185,8 +290,8 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     /* 右摇杆左右(ch0)使用中位死区；死区外重新映射，保持满杆仍为满量程。 */
     float wz = -Chassis_Clamp_Channel_Deadzone(rotate, CHASSIS_ROTATE_DEADZONE);
 
-    /* 失联保护：立即停止底盘并返回 */
-    if (failsafe) {
+    /* 失联或夹角异常：立即停止，避免无效坐标变换传到轮速目标。 */
+    if (failsafe || !isfinite(delta_theta)) {
         Chassis_Stop();
         return;
     }
@@ -195,6 +300,12 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     if (car_mode == CAR_MODE_INIT || car_mode == CAR_MODE_SLEEP) {
         Chassis_Stop();
         return;
+    }
+
+    if (car_mode != CAR_MODE_GYRO) {
+        /* 自旋期间不切换对齐端；退出SPIN后的首个GYRO拍按当时夹角重新选择。
+         * 保留align_dir供观察，但align_valid=false表示不沿用旧选择/机械冷却。 */
+        chassis_yaw_follow.align_valid = false;
     }
 
     /* 速度从云台坐标系转换到底盘坐标系：MECH / GYRO / SPIN 统一投影。
@@ -216,7 +327,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
         /* 小陀螺模式：底盘恒定以最大速度自旋，忽略操作手旋转输入 */
         if (car_mode == CAR_MODE_SPIN) {
             wz = Chassis_Clamp_Normalized(CHASSIS_SPIN_NORMALIZED);
-            chassis_yaw_ff_filtered = 0.0f;
+            Chassis_Reset_Yaw_Feedforward();
 
             /* 旋转优先*/
             const float trans_max = 1.0f - fabsf(wz);//剩给前进的速度
@@ -227,30 +338,16 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
                 vy *= trans_scale;
             }
         } else if (car_mode == CAR_MODE_GYRO) {
-            /* 摇杆回中或鼠标等效通道归零时清空前馈，避免松手后的滤波尾值。 */
-            if (fabsf((float)rotate) <= (float)CHASSIS_ROTATE_DEADZONE) {
-                chassis_yaw_ff_filtered = 0.0f;
-                wz = 0.0f;
-            } else {
-                /* 遥控 ch0 / 键鼠等效 ch0 共用低通平滑，不重复积分鼠标位移。 */
-                /* 一阶低通滤波（加权平均形式）：新值 = (1-α)×旧值 + α×摇杆输入 */
-                chassis_yaw_ff_filtered =
-                    (1.0f - CHASSIS_YAW_FF_LPF_ALPHA) * chassis_yaw_ff_filtered +
-                    CHASSIS_YAW_FF_LPF_ALPHA * wz;
-                    //得到摇杆前馈的值
-            }
-
-            /* GYRO 始终让车头跟随云台，不切换到 180° 车尾对齐。 */
-            wz = Chassis_Calc_Follow_Wz_Norm(delta_theta) + //偏移角度经过线性非线性误差叠加
-                 CHASSIS_YAW_FF_GAIN * chassis_yaw_ff_filtered;//摇杆前馈乘以比例系数
-            wz = Chassis_Clamp_Normalized(wz);
+            /* 遥控/键鼠统一跟随云台实际运动；摇杆回中不再强制清前馈。
+             * 跟随误差可折算到车尾；上面的平移投影仍使用真实delta_theta。 */
+            wz = Chassis_Calc_Gyro_Wz(delta_theta, gimbal_yaw_speed_rads, gimbal_yaw_valid);
         } else {
             /* MECH：云台就近锁轴（0°或180°），ch0 手动转底盘，不做跟随。
                平移已经投影到云台坐标系——头锁在车尾时 W 自动倒车。 */
-            chassis_yaw_ff_filtered = 0.0f;
+            Chassis_Reset_Yaw_Feedforward();
         }
     } else {
-        chassis_yaw_ff_filtered = 0.0f;
+        Chassis_Reset_Yaw_Feedforward();
     }
 
 
@@ -270,7 +367,7 @@ void Chassis_Update(int16_t forward, int16_t lateral, int16_t rotate,
     }
 
     /* 四轮 PID 已完成；功率限制必须在最终电流转换和 CAN 发送之前。 */
-    //Chassis_Power_Apply();
+    Chassis_Power_Apply();
 
     /* 一次CAN帧发送4个电机 */
     Chassis_Motor_Group.group_set_torque(&Chassis_Motor_Group);
