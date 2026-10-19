@@ -5,14 +5,14 @@
   * @details        : 本文件实现了下层板拨弹电机的安全控制逻辑，包括：
   *
   *                   1. 摩擦轮就绪安全锁：未达速/电机离线时拨盘锁位不动，指令丢弃
-  *                   2. 单发：角度环跟踪encoder_sum，每次加一格弹
+  *                   2. 单发：角度环跟踪encoder_sum，忙时最多保留一发待执行请求
   *                   3. 连发：定频步进（每300ms推进一格），与单发共用角度环
   *                   4. 松手回吸：停射时目标对齐到最近整格，防半格卡弹
   *                   5. 防卡弹反转：堵转先退一格松弹，再补回原目标重试
-  *                   6. 卡弹停机：重试用尽则停射停摩擦轮，重拨总开关才解锁
+  *                   6. 卡弹持续重试：反转到位或超时后补回原目标，不因重试次数关闭摩擦轮
   *
   *                   拨弹状态机：
-  *                   SLEEP -> SPINUP -> READY -> FIRE <-> RECOIL -> STOP_JAM
+  *                   SLEEP -> SPINUP -> READY -> FIRE <-> RECOIL
   *                   总开关关闭、失联或电机离线时回退到SLEEP
   ******************************************************************************
   */
@@ -26,14 +26,13 @@ static ShootState_e shoot_state = SHOOT_STATE_SLEEP;
 static float    angle_sum_target = 0.0f;   /* 角度环目标(encoder_sum) */
 static float    jam_saved_target = 0.0f;   /* 卡弹瞬间锁存的原目标 */
 static bool     fric_on = false;
-static bool     jam_latched = false;       /* 卡弹锁存：重拨总开关才清 */
-static bool     continuous_armed = false;  /* 连发边沿锁存：松开后才能重新武装 */
-static bool     continuous_last = false;   /* 连发上一次电平，用于求上升沿 */
+static bool     single_pending = false;   /* 忙时最多缓存一发，回中不清除 */
+static bool     continuous_last = false;  /* 只用于连发首发节拍，不作为发射授权 */
+static InputSrc_e last_input_src = INPUT_SRC_RC;
 static uint16_t fire_cnt = 0;              /* 推弹经过周期数，仅用于起步判卡宽限 */
 static uint16_t recoil_cnt = 0;            /* 反转超时计数 */
 static uint16_t stuck_cnt = 0;             /* 卡弹判据持续计数 */
 static uint16_t repeat_cnt = 0;            /* 连发定频周期计数 */
-static uint8_t  jam_retry = 0;             /* 本发弹已补位重试次数 */
 
 /**
   * @brief  拨弹模块初始化
@@ -46,14 +45,13 @@ void Shoot_Init(void)
     angle_sum_target = 0.0f;
     jam_saved_target = 0.0f;
     fric_on = false;
-    jam_latched = false;
-    continuous_armed = false;
+    single_pending = false;
     continuous_last = false;
+    last_input_src = INPUT_SRC_RC;
     fire_cnt = 0;
     recoil_cnt = 0;
     stuck_cnt = 0;
     repeat_cnt = 0;
-    jam_retry = 0;
     Shoot_Motor_Stop();
 }
 
@@ -69,7 +67,7 @@ bool Shoot_Is_Fric_On(void)
 /**
   * @brief  回吸最近整格
   * @details 把角度环目标对齐到 SHOOT_ONESHOT_ANGLE 的整数倍，
-  *          停射、起转等待、卡弹停机时调用。
+  *          停射、起转等待时调用。
   */
 static void Shoot_Round_To_Slot(void)
 {
@@ -126,23 +124,8 @@ void Shoot_Update(const Car_t *car, bool failsafe)
     bool motor_online = (Shoot_Motor.state->status == DEV_ONLINE);
     bool system_on = car->flags.is_shoot_system_on &&(!failsafe) && motor_online;//遥控器上的发射总开关开了&整车没有失联&拨弹电机在线
 
-    //car->flags.is_continuous_shoot状态机检测遥控是否要连发
-   
-    /*检测到触发“连发”遥控，锁存状态位*/
-    bool continuous_rise = car->flags.is_continuous_shoot && (!continuous_last);//拨杆刚刚拨过去要连发的那一瞬为1，也就是下面if首弹的用处
-    continuous_last = car->flags.is_continuous_shoot;
-
-    if (continuous_rise) {
-        continuous_armed = true;//连发状态锁存，想再触发必须先拨回去再拨过来
-
-        repeat_cnt = SHOOT_REPEAT_PERIOD_TICKS;  /* 首发立即出弹 */
-    }
-
-    
-    /* 重新开机，卡弹状态清零，一般是卡弹这个标志位为1卸力，人为检查拨弹 */
-    if (!car->flags.is_shoot_system_on) {
-        jam_latched = false;
-    }
+    const bool source_changed = car->input_src != last_input_src;
+    last_input_src = car->input_src;
 
     /* ---------- 总开关关 / 失联 / 拨盘离线：卸力并回吸整格 ---------- */
     if (!system_on) {
@@ -150,20 +133,10 @@ void Shoot_Update(const Car_t *car, bool failsafe)
         Shoot_Round_To_Slot();
         shoot_state = SHOOT_STATE_SLEEP;
         fric_on = false;
-        continuous_armed = false;
-        jam_retry = 0;
+        single_pending = false;
+        continuous_last = false;
+        repeat_cnt = 0;
         stuck_cnt = 0;
-        board_tx_info.is_fric_on = 0;
-        return;
-    }
-
-    /* ---------- 卡弹锁存到限额了：停射停摩擦轮，等人工排障 ---------- */
-    if (jam_latched) {
-        Shoot_Motor_Stop();
-        Shoot_Round_To_Slot();
-        shoot_state = SHOOT_STATE_STOP_JAM;
-        fric_on = false;
-        continuous_armed = false;
         board_tx_info.is_fric_on = 0;
         return;
     }
@@ -172,18 +145,30 @@ void Shoot_Update(const Car_t *car, bool failsafe)
     fric_on = true;
     board_tx_info.is_fric_on = 1;
 
-    /* 连发射速的节拍器 */
-    if (continuous_armed && car->flags.is_continuous_shoot) {
-        if (repeat_cnt < SHOOT_REPEAT_PERIOD_TICKS) {
-            repeat_cnt++;//150×2ms = 300ms 一发，在下面if里判断是否超时然后触发连发发射
-        }
+    const bool continuous = car->flags.is_continuous_shoot;
+    const bool fric_ready = Shoot_Is_Fric_Ready();
+
+    /* 取消旧单发请求；输入源切换当拍也不接收新的单发脉冲。 */
+    if (source_changed || continuous || !fric_ready) {
+        single_pending = false;
+    } else if (car->flags.is_single_shoot_cmd &&
+               (shoot_state == SHOOT_STATE_READY || shoot_state == SHOOT_STATE_FIRE ||
+                shoot_state == SHOOT_STATE_RECOIL)) {
+        single_pending = true;
     }
+
+    /* 连发只跟随当前电平，边沿仅使首发立即可执行。 */
+    if (continuous && !continuous_last) {
+        repeat_cnt = SHOOT_REPEAT_PERIOD_TICKS;
+    } else if (continuous && repeat_cnt < SHOOT_REPEAT_PERIOD_TICKS) {
+        repeat_cnt++;
+    }
+    continuous_last = continuous;
 
     /*  SPINUP（等摩擦轮） ──────── 锁在最近的格子上（①）
         READY(摩擦轮已好，空闲) ── 锁在最近的格子上（①）
         FIRE（推弹） ───────── 冲向下一格（②）
         RECOIL（卡弹回退） ─────── 退回身后一格（③）
-        STOP_JAM（卡弹停机） ──── 停机，需要人工排查后关总开关才能解锁
         */
     switch (shoot_state) {
 
@@ -202,7 +187,7 @@ void Shoot_Update(const Car_t *car, bool failsafe)
 
         Shoot_Motor.single_set_angle(&Shoot_Motor);//执行这次角度控制（算 PID、下发电机指令）
 
-        if (Shoot_Is_Fric_Ready()) {
+        if (fric_ready) {
             shoot_state = SHOOT_STATE_READY;
         }
         break;
@@ -211,30 +196,26 @@ void Shoot_Update(const Car_t *car, bool failsafe)
     case SHOOT_STATE_READY:
 
      /* ready状态掉线保护--------------摩擦轮掉速或离线：退回起转，break不再继续*/
-        if (!Shoot_Is_Fric_Ready()) {
+        if (!fric_ready) {
             shoot_state = SHOOT_STATE_SPINUP;
             break;
         }
 
-        /* 摇杆位于连发档  &&  连发锁存continuous_armed授权 */
-        if (continuous_armed && car->flags.is_continuous_shoot) {
+        /* 拨杆保持连发位置就持续请求，不需要额外授权锁存。 */
+        if (continuous) {
             /* 连发定频步进：到点推进一格，与单发共用角度环 */
             if (repeat_cnt >= SHOOT_REPEAT_PERIOD_TICKS) { //节拍数满300ms
                 repeat_cnt = 0;
                 angle_sum_target += SHOOT_ONESHOT_ANGLE;  //目标在此累加先
-                jam_retry = 0;   /* 新一发独立计重试；RECOIL补位重试不走这里。 */
                 fire_cnt = 0;    // 新一发重新计算起步判卡宽限
                 stuck_cnt = 0;
                 shoot_state = SHOOT_STATE_FIRE;  //切到下一个状态---------推弹状态
                 break;
             }
 
-          /* 收到单发指令
-          ----------------carctrl内为2ms脉冲，每周期会清零并检测
-          */
-        } else if (car->flags.is_single_shoot_cmd) {
+        } else if (single_pending) {
+            single_pending = false; /* 消费这一发请求，后续忙时可再缓存一发。 */
             angle_sum_target += SHOOT_ONESHOT_ANGLE;
-            jam_retry = 0;  /* 单发和连发都在新一发开始时清零。 */
             fire_cnt = 0;
             stuck_cnt = 0;
             shoot_state = SHOOT_STATE_FIRE;
@@ -291,22 +272,14 @@ void Shoot_Update(const Car_t *car, bool failsafe)
          现在是赋值还未操作，所以不会进入到下面的if反转到位目标更新*/
         float err = angle_sum_target - (float)Shoot_Motor.rx_info->encoder_sum;
 
-        // 反转到位或超时且有余额：补回Fire缓存的原目标，继续进弹
+        // 反转到位或超时：补回Fire缓存的原目标，持续重试这一发
         if (fabsf(err) < SHOOT_RECOIL_ARRIVE_ERR ||
             recoil_cnt > SHOOT_RECOIL_TIMEOUT_TICKS) {
 
-                 /* 还没到限制次数，补位重试：目标补回卡弹瞬间的原目标，继续这一发 */
-            if (jam_retry < SHOOT_JAM_RETRY_MAX) {
-                jam_retry++;
-                angle_sum_target = jam_saved_target;
-                fire_cnt = 0;
-                stuck_cnt = 0;
-                shoot_state = SHOOT_STATE_FIRE;
-            } else {
-                /* 重试用尽：卡弹停机，停射停摩擦轮 */
-                jam_latched = true;
-                continuous_armed = false;
-            }
+            angle_sum_target = jam_saved_target;
+            fire_cnt = 0;
+            stuck_cnt = 0;
+            shoot_state = SHOOT_STATE_FIRE;
             break;
         }
 
@@ -322,8 +295,7 @@ void Shoot_Update(const Car_t *car, bool failsafe)
         break;
     }
 
-    /* ---------- 卡弹停机（由jam_latched分支处理，此处兜底） ---------- */
-    case SHOOT_STATE_STOP_JAM:
+    /* ---------- 非法状态兜底 ---------- */
     default:
         Shoot_Motor_Stop();
         break;

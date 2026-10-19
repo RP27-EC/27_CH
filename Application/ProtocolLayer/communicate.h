@@ -41,7 +41,7 @@ typedef struct {
     float pitch_encoder_tar; /* MECH：编码器机械目标角；GYRO：IMU 域目标角 (rad) */
     uint8_t pitch_enable;
     uint8_t pitch_use_imu;   /* 1=GYRO/SPIN：上层按 IMU 域闭环；0=MECH：编码器闭环 */
-    uint8_t is_fric_on;      /* 下层->上层：摩擦轮开启（拨弹总开关且未卡弹停机） */
+    uint8_t is_fric_on;      /* 下层->上层：摩擦轮开启；卡弹重试期间保持开启 */
 } Board_Tx_Info_t;
 
 extern Board_Rx_Info_t board_rx_info;

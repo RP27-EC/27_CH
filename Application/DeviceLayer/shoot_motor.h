@@ -21,7 +21,7 @@
 #define SHOOT_ONESHOT_ANGLE       (31481.0f)
 
 /* 单发到位判据：|angle_sum err| < 该值视为到位（编码器计数） */
-#define SHOOT_ARRIVE_ERR          (600.0f)
+#define SHOOT_ARRIVE_ERR          (1200.0f)
 
 /* 连发定频步进周期：150×2ms = 300ms 一发，首发立即 */
 #define SHOOT_REPEAT_PERIOD_TICKS (150U)
@@ -34,9 +34,6 @@
 #define SHOOT_STUCK_SPEED_RPM     (80.0f)    /* 转子转速绝对值低于此值才累计 */
 #define SHOOT_STUCK_GRACE_TICKS   (100U)     /* 每次推弹/补位起步200ms不累计判卡 */
 #define SHOOT_STUCK_TICKS         (250U)     /* 宽限后连续约500ms满足才判卡 */
-
-/* 卡弹重试：同一发弹最多补位重试次数，超过进卡弹停机 */
-#define SHOOT_JAM_RETRY_MAX       (3U)
 
 /* 反转松弹：250×2ms = 500ms 未到位也视为完成 */
 #define SHOOT_RECOIL_TIMEOUT_TICKS (250U)

@@ -1333,7 +1333,17 @@
             <File>
               <FileName>chassis_power_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Application\ModuleLayer\chassis_power_adapter.c</FilePath>
+              <FilePath>..\Application\AlgorithmLayer\chassis_power_adapter.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_kinematics.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\AlgorithmLayer\chassis_kinematics.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_kinematics.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Application\AlgorithmLayer\chassis_kinematics.h</FilePath>
             </File>
             <File>
               <FileName>algo.c</FileName>
@@ -1537,19 +1547,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>chassis_kinematics.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Application\ModuleLayer\chassis_kinematics.c</FilePath>
-            </File>
-            <File>
               <FileName>chassis.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Application\ModuleLayer\chassis.h</FilePath>
-            </File>
-            <File>
-              <FileName>chassis_kinematics.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Application\ModuleLayer\chassis_kinematics.h</FilePath>
             </File>
             <File>
               <FileName>gimbal.c</FileName>

@@ -1,0 +1,47 @@
+{
+    "version":  4,
+    "configurations":  [
+                           {
+                               "compilerArgs":  [
+                                                    "--target=arm-arm-none-eabi",
+                                                    "-mcpu=cortex-m7",
+                                                    "-mfpu=fpv5-d16",
+                                                    "-mfloat-abi=hard",
+                                                    "-fshort-enums",
+                                                    "-fshort-wchar"
+                                                ],
+                               "includePath":  [
+                                                   "${workspaceFolder}/Core/Inc",
+                                                   "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
+                                                   "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
+                                                   "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                                                   "${workspaceFolder}/Drivers/CMSIS/Include",
+                                                   "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/include",
+                                                   "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2",
+                                                   "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F",
+                                                   "${workspaceFolder}/Application/AlgorithmLayer",
+                                                   "${workspaceFolder}/Application/ConfigLayer",
+                                                   "${workspaceFolder}/Application/DriverLayer",
+                                                   "${workspaceFolder}/Application/DeviceLayer/Imu",
+                                                   "${workspaceFolder}/Application/DeviceLayer/Sensor",
+                                                   "${workspaceFolder}/Application/DeviceLayer",
+                                                   "${workspaceFolder}/Application/HardwareLayer",
+                                                   "${workspaceFolder}/Application/ModuleLayer",
+                                                   "${workspaceFolder}/Application/ProtocolLayer",
+                                                   "${workspaceFolder}/Application/TaskLayer",
+                                                   "${workspaceFolder}/Application/UserLayer",
+                                                   "${workspaceFolder}/Application/ControlLayer"
+                                               ],
+                               "name":  "Keil ARMClang - STM32H723",
+                               "intelliSenseMode":  "windows-clang-arm",
+                               "cppStandard":  "c++14",
+                               "defines":  [
+                                               "USE_PWR_LDO_SUPPLY",
+                                               "USE_HAL_DRIVER",
+                                               "STM32H723xx"
+                                           ],
+                               "cStandard":  "gnu11",
+                               "compilerPath":  "C:/KeilBuildTools/ARM/ARMCLANG/bin/armclang.exe"
+                           }
+                       ]
+}

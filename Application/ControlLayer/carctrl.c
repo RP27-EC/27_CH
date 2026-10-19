@@ -23,14 +23,9 @@ CarMechMouseDebug_t car_mech_mouse_debug;
 /** @brief 打弹冷却计数阈值：300 * 2ms = 0.6秒，防止连续打弹过快 */
 #define SHOOT_COOLDOWN_TICKS     300
 
-/** @brief 拨杆 s1 停稳判定阈值：50 * 2ms = 100ms*/
-#define SW_STABLE_TICKS          50
-
-/** @brief 拨杆 s2 停稳判定阈值：15 * 2ms = 30ms */
-#define SW2_STABLE_TICKS         15
-
-/* 打弹冷却计数器（遥控器 / 键鼠共用一把闸，保证换输入源不绕过 0.6s 冷却） */
+/* 仅键鼠单发使用0.6s冷却，遥控操作期间仍维护经过的时间。 */
 static uint16_t shoot_cnt = SHOOT_COOLDOWN_TICKS;
+static uint8_t s2_last = 0xFF; /* 尚未采样时不凭空产生单发边沿。 */
 
 
 /* Ctrl 电平快照与下降沿：Car_Control_Update 每拍在关中断块里取一次，
@@ -76,72 +71,11 @@ static bool RC_Thumbwheel_Dn_Edge(void) {
     return edge;
 }
 
-/**
-  * @brief  拨杆 s1 是否已停稳
-  * @details 三挡拨杆从「上」拨到「下」必经「中」，过渡帧会采到 (S1中, S2下)，
-  *          正好命中遥控器连发条件，一进/出键鼠就走火。这里要求 s1 连续
-  *          SW_STABLE_TICKS 拍没动过才放行发射：
-  *
-  *            - 单发靠拨 s2、连发靠 s1 停在中位，正常操作时 s1 本来就是停稳的，
-  *              所以这道闸对正常手感零延迟；
-  *            - 单发仍只看 s1：单发是拨一下就过的短促动作，把 s2 也算进
-  *              单发的停稳会把它闸死。连发额外要求 s2 停稳（见 Car_S2_Stable），
-  *              堵住「进键鼠时 s2 先动」产生的真实 (中, 下) 错位帧。
-  *
-  *          【调用契约】必须每个 2ms 拍都被调一次，不能挂在某个输入源分支里。
-  *          本函数靠静态计数记「s1 多久没动」，一旦漏拍，计数就停在旧值上：
-  *          键鼠期间漏调的话，出键鼠那一瞬拿到的是进键鼠之前攒的数，
-  *          「s1 进键鼠前停在中位」的场景回拨第一帧就被判已停稳、零停留走火。
-  *
-  * @param  s1 : 本拍拨杆 s1 快照
-  * @retval true : s1 已停稳，可以发射
-  * @retval false: s1 刚动过，禁止发射
-  */
-static bool Car_S1_Stable(uint8_t s1) {
-    static uint8_t last_s1 = 0xFF;   /* 上一拍的 s1，0xFF 保证首拍必算「刚动过」 */
-    static uint8_t hold_ticks = 0;   /* s1 连续未变的拍数 */
-
-    if (s1 != last_s1) {
-        last_s1 = s1;
-        hold_ticks = 0;
-        return false;
-    }
-    if (hold_ticks < SW_STABLE_TICKS) {
-        hold_ticks++;
-        return false;
-    }
-    return true;
-}
-
-/**
-  * @brief  拨杆 s2 是否已停稳
-  * @details 与 Car_S1_Stable 同构，但只服务于「连发装配」这一个判定点。
-  *          进键鼠时两根拨杆先后拨到下位，s2 先动会先来一帧 (中, 下)——
-  *          这帧是线上真实值（两根拨杆本来就先后到位），不是 ISR 撕裂，
-  *          Car_S1_Stable 拦不住：s1 还停在中位没动，hold_ticks 一直在涨。
-  *          这里要求 s2 也停稳，那帧错位就被 SW2_STABLE_TICKS 的停稳窗挡掉。
-  *
-  *          【调用契约】与 Car_S1_Stable 相同：必须每个 2ms 拍都被调一次，
-  *          不能挂在某个输入源分支里，否则计数会冻结。
-  *
-  * @param  s2 : 本拍拨杆 s2 快照
-  * @retval true : s2 已停稳，可以装配连发
-  * @retval false: s2 刚动过，禁止装配连发
-  */
-static bool Car_S2_Stable(uint8_t s2) {
-    static uint8_t last_s2 = 0xFF;   /* 上一拍的 s2，0xFF 保证首拍必算「刚动过」 */
-    static uint8_t hold_ticks = 0;   /* s2 连续未变的拍数 */
-
-    if (s2 != last_s2) {
-        last_s2 = s2;
-        hold_ticks = 0;
-        return false;
-    }
-    if (hold_ticks < SW2_STABLE_TICKS) {
-        hold_ticks++;
-        return false;
-    }
-    return true;
+/* 每个控制周期都采样，发射关闭、键鼠及初始化期间也不冻结拨杆历史。 */
+static bool Car_S2_Up_Edge(uint8_t s2) {
+    const bool edge = s2_last != 0xFF && s2_last != RC_SW_UP && s2 == RC_SW_UP;
+    s2_last = s2;
+    return edge;
 }
 
 /**
@@ -152,7 +86,7 @@ static bool Car_S2_Stable(uint8_t s2) {
   *          清零条件不触发、平移分支照走，预充电的 WASD 计数当拍就满速冲车。
   *          这里直接比对相邻两拍的电平快照，两个读数都来自关中断块，天然一致。
   *
-  *          【调用契约】必须每个 2ms 拍都被调一次（同 Car_S1_Stable）。
+  *          【调用契约】必须每个 2ms 拍都被调一次。
   *
   * @param  ctrl_val : 本拍 Ctrl 电平快照
   * @retval true : Ctrl 刚松开（上一拍还按着、这一拍已松）
@@ -283,69 +217,33 @@ static bool Car_R_Turn_Edge(void) {
 /* ========================================================================= */
 
 /**
-  * @brief  摩擦轮与发射动作指令处理
-  * @details 根据遥控器拨杆和拨轮输入，处理发射系统的开关控制：
-  *
-  *          1. 摩擦轮开关：S1中 + S2中 + 拨轮向上 -> 切换摩擦轮开/关
-  *          2. 单发：S2上（上升沿）。s2 从非上位拨到上位出一发，
-  *             必须回中（s2=3）再拨上来才有下一发——真单发，不是 0.6s 一发的伪单发。
-  *             旧的冷却逻辑注释掉保留：它让「拨一下按住」看起来像慢速连发。
-  *
-  *          发射前有几道闸（都过了才出弹）：
-  *            1. S1 不能停在下位：下位是键鼠域，遥控器发射通路在这一位一律不出弹。
-  *               否则操作手「先把 S1 拨到下、S2 还在上」这个准备动作会每 0.6s 走一发单发。
-  *            2. S1 必须停稳：三挡拨杆从上到下必经中位，过渡帧采到的 (中, 下)
-  *               正好是连发条件，不闸住就一进/出键鼠走一发。
-  *            3. 连发还要求 S2 停稳：进键鼠时两根拨杆先后拨到下位，S2 先动会
-  *               先来一帧真实的 (中, 下)。S1 还停在中位没动，第 2 道闸拦不住
-  *               这一帧——那是线上值不是撕裂。S2 停稳窗把这类错位帧挡掉。
-  *
+  * @brief 遥控发射：波轮开关总系统，单发看S2上位边沿，连发看当前拨杆组合。
+  * @details 不增加拨杆稳定等待；S1下位不使用遥控发射通路。
   */
-static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1, uint8_t s2, bool s1_stable, bool s2_stable) {
-    /* --- 摩擦轮开关控制：S1中 + S2中 + 拨轮向上--- */
-    if (s1 == 3 && s2 == 3 && tb_up) {
-        car->flags.is_shoot_system_on = !car->flags.is_shoot_system_on;  //翻转切换开/关
+static void Car_Action_Cmd_Update(Car_t *car, bool tb_up, uint8_t s1,
+                                  uint8_t s2, bool s2_up_edge) {
+    if (s1 == RC_SW_MID && s2 == RC_SW_MID && tb_up) {
+        car->flags.is_shoot_system_on = !car->flags.is_shoot_system_on;
     }
 
-    /* --- 发射逻辑（单发 / 手动打）--- */
+    car->flags.is_single_shoot_cmd = false;
+    car->flags.is_continuous_shoot = false;
 
-    car->flags.is_single_shoot_cmd = false; //！！每次循环先清除单发指令，只在满足条件时置位
-
-    //摩擦轮未开启时，不响应任何打弹指令
     if (!car->flags.is_shoot_system_on) {
-        shoot_cnt = SHOOT_COOLDOWN_TICKS;  /* 重置冷却计数器，确保下次可以立即发射 */
-        car->flags.is_continuous_shoot = false;
+        shoot_cnt = SHOOT_COOLDOWN_TICKS;
         return;
     }
 
-    //冷却计时递增（每2ms加1，到阈值后允许再次发射）
+    /* 保持键鼠冷却随时间恢复；遥控单发不受这道冷却限制。 */
     if (shoot_cnt < SHOOT_COOLDOWN_TICKS) {
         shoot_cnt++;
     }
-
-    /* 两道闸：S1 停在下位 = 键鼠域，S1 刚动过 = 拨杆过渡帧，都不许出弹。
-       冷却计时照走，切换输入源不会人为拉长 0.6s。 */
-    if (s1 == RC_SW_DOWN || !s1_stable) {
-        car->flags.is_continuous_shoot = false;
+    if (s1 == RC_SW_DOWN) {
         return;
     }
 
-    /*---------- 连发：S1中 + S2下，按住持续出弹。额外要求 S2 停稳--------*/
-
-    // if (s2 == RC_SW_UP && shoot_cnt >= SHOOT_COOLDOWN_TICKS) {
-    //     car->flags.is_single_shoot_cmd = true;   /* 发出单发指令 */
-    //     shoot_cnt = 0;                           /* 重置冷却计数器 */
-    // }
-    static uint8_t s2_last = 0xFF;  /* 上一拍的 s2，0xFF 保证首拍不算上升沿 */
-    if (s2 == RC_SW_DOWN && s1 == RC_SW_MID && s2_stable) {
-        car->flags.is_continuous_shoot = true;
-    } else {
-        car->flags.is_continuous_shoot = false;
-        if (s2 == RC_SW_UP && s2_last != RC_SW_UP) {
-            car->flags.is_single_shoot_cmd = true;   /* 上升沿：拨到上位的那一瞬出一发 */
-        }
-    }
-    s2_last = s2;  /* 每拍都更新，不管走没走单发分支 */
+    car->flags.is_continuous_shoot = s1 == RC_SW_MID && s2 == RC_SW_DOWN;
+    car->flags.is_single_shoot_cmd = s2_up_edge;
 }
 
 
@@ -571,6 +469,8 @@ void Car_Chassis_Channel_Get(Car_t *car, int16_t *forward, int16_t *lateral, int
 
 
 void Car_Control_Init(Car_t *car) {
+    s2_last = 0xFF;
+    shoot_cnt = SHOOT_COOLDOWN_TICKS;
     car->mode = CAR_MODE_SLEEP;           /* 初始模式：休眠 */
     car->last_mode = CAR_MODE_SLEEP;      /* 上一次模式：休眠 */
     car->reset_state = RESET_PENDING;     /* 复位状态：等待中 */
@@ -608,14 +508,11 @@ void Car_Control_Update(Car_t *car) {
         __set_PRIMASK(primask);
     }
 
-    /* 停稳判定 + Ctrl 松开边沿：放在分流之前、每 2ms 无条件执行（键鼠期间照算），
-       函数内部的计数器才不会冻结成陈旧值、出键鼠第一拍误报「已停稳」走火 */
-
-    const bool s1_stable = Car_S1_Stable(s1);
-
-    const bool s2_stable = Car_S2_Stable(s2);
-
+    /* 在任何提前返回和输入源分流之前更新边沿历史。 */
+    const bool s2_up_edge = Car_S2_Up_Edge(s2);
     ctrl_fall_edge = Ctrl_Fall_Edge(ctrl_val_snap);
+    car->flags.is_single_shoot_cmd = false;
+    car->flags.is_continuous_shoot = false;
 
     //失联保护
     if (rc_sensor.work_state != DEV_ONLINE || rc_sensor.errno != NONE_ERR) {
@@ -629,7 +526,9 @@ void Car_Control_Update(Car_t *car) {
     }
 
     /* 输入源标记 */
-    car->input_src = Car_Input_Src_Detect(s1, s2);
+    const InputSrc_e input_src = Car_Input_Src_Detect(s1, s2);
+    const bool source_changed = car->input_src != input_src;
+    car->input_src = input_src;
 
     /*上电复位流程*/
     if (car->reset_state == RESET_PENDING) {
@@ -658,7 +557,7 @@ void Car_Control_Update(Car_t *car) {
         }
     } else {
         Car_Mode_Switch_Update(car, tb_up, tb_dn, s1, s2);
-        Car_Action_Cmd_Update(car, tb_up, s1, s2, s1_stable, s2_stable);
+        Car_Action_Cmd_Update(car, tb_up, s1, s2, s2_up_edge && !source_changed);
 
         /* 遥控换头 */
         if (s1 == RC_SW_UP && s2 == RC_SW_UP && tb_up &&
